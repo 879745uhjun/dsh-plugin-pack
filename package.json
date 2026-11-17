@@ -1,0 +1,48 @@
+{
+  "name": "dsh-plugin-pack",
+  "version": "0.1.0",
+  "description": "Bundle a set of DSH plugins, their configs and version locks into one portable .dshpack, then install it on another machine.",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "dsh-pack": "./bin/dsh-pack.mjs"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./lib/*": "./lib/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "bin/*.mjs",
+    "lib/*.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "plugins",
+    "bundle",
+    "pack",
+    "migration"
+  ],
+  "engines": {
+    "dsh": ">=0.2.2 <0.3.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\""
+  },
+  "license": "MIT",
+  "author": "879745uhjun",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
