@@ -26,7 +26,7 @@ test('diagnose flags a takeover slot as a blocker', () => {
   const diagnostics = diagnose({
     targetDsh: '0.2.4',
     plugins: [
-      plugin({ name: 'dsh-quickbar', slots: ['sidebar.workspaces.session.row.action'], takeover: true }),
+      plugin({ name: 'dsh-quickbar', slots: ['sidebar.workspaces.session.row.action'], takeoverSlots: ['sidebar.workspaces.session.row.action'] }),
       plugin({ name: 'dsh-pin', slots: ['sidebar.workspaces.session.row.action'] }),
     ],
   })
@@ -75,7 +75,7 @@ test('summarize counts levels and keeps generation possible', () => {
   const diagnostics = diagnose({
     targetDsh: '0.2.4',
     plugins: [
-      plugin({ name: 'a', slots: ['sidebar.x.action'], takeover: true }),
+      plugin({ name: 'a', slots: ['sidebar.x.action'], takeoverSlots: ['sidebar.x.action'] }),
       plugin({ name: 'b', slots: ['sidebar.x.action'] }),
     ],
   })

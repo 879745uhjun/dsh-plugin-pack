@@ -182,6 +182,7 @@ function fromManifest(entry) {
     dependencies: entry.dependencies ?? {},
     slots: entry.slots ?? [],
     takeover: Boolean(entry.takeover),
+    takeoverSlots: entry.takeoverSlots ?? [],
     repo: entry.repo ?? null,
   }
 }
