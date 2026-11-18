@@ -22,7 +22,9 @@ import { installPack } from './lib/install.mjs'
 import { createPack, readPack, verifyPack } from './lib/pack.mjs'
 import { listBackups, restoreBackup } from './lib/restore.mjs'
 import { listProfiles, resolveDshHome, scanProfile } from './lib/scan.mjs'
-import { compareVersions } from './lib/semver.mjs'
+import { compareVersions, highestVersion } from './lib/semver.mjs'
+
+export { highestVersion }
 
 const run = promisify(execFile)
 
@@ -159,17 +161,6 @@ export async function listPacks(home) {
   }
   packs.sort((a, b) => b.mtime - a.mtime)
   return packs
-}
-
-/** Highest semver in a list of version strings, or null. */
-export function highestVersion(values) {
-  let best = null
-  for (const raw of values ?? []) {
-    const version = String(raw).trim().replace(/^v/, '')
-    if (!/^\d+\.\d+\.\d+/.test(version)) continue
-    if (!best || compareVersions(version, best) > 0) best = version
-  }
-  return best
 }
 
 /** Highest semver tag in git ls-remote --tags --refs output, or null. */
@@ -491,11 +482,119 @@ export function createInstallHandler(ctx, log) {
 }
 
 /**
+ * The plugin_pack agent tool: the same operations the page calls, without HTTP.
+ * @param ctx - Host context.
+ */
+export function createPluginPackTool(ctx) {
+  return {
+    name: 'plugin_pack',
+    description:
+      'Bundle DSH plugins into a portable .dshpack, inspect a pack, install one atomically, or roll an install back. ' +
+      'start with action "state" to see the plugins of the active profile and their compatibility diagnostics.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['state', 'create', 'inspect', 'install', 'restore'],
+          description: 'Operation to perform.',
+        },
+        name: { type: 'string', description: 'Pack name for action "create".' },
+        version: { type: 'string', description: 'Pack version for action "create" (default 1.0.0).' },
+        select: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Plugin names to include; omitted means every non-registry plugin.',
+        },
+        file: { type: 'string', description: 'Pack path for inspect and install.' },
+        confirm: {
+          type: 'boolean',
+          description: 'Required for install to write: without it the call is a dry run.',
+        },
+        stamp: { type: 'string', description: 'Backup stamp for restore, or "latest".' },
+      },
+      required: ['action'],
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args) {
+      const action = args?.action
+      if (action === 'state') {
+        const state = await collectState(ctx)
+        return {
+          ok: true,
+          profile: state.profile.dir,
+          targetDsh: state.targetDsh,
+          plugins: state.plugins.map((plugin) => ({ name: plugin.name, version: plugin.version, kind: plugin.kind, slots: plugin.slots.length })),
+          diagnostics: state.diagnostics,
+          summary: state.summary,
+          packs: state.packs.map((pack) => ({ name: pack.name, version: pack.version, plugins: pack.plugins, file: pack.file })),
+        }
+      }
+      if (action === 'create') {
+        const state = await collectState(ctx)
+        const select = Array.isArray(args?.select) && args.select.length > 0 ? args.select : null
+        const version = typeof args?.version === 'string' ? args.version : '1.0.0'
+        const packName = typeof args?.name === 'string' && args.name ? args.name : 'dsh-toolkit'
+        const out = join(state.home, PACK_DIR, packName + '-' + version + '.dshpack')
+        const result = await createPack({
+          profileDir: state.profile.dir,
+          home: state.home,
+          name: packName,
+          version,
+          select,
+          targetDsh: state.targetDsh,
+          out,
+        })
+        return { ok: true, file: out, bytes: result.bytes, files: result.files, plugins: result.manifest.plugins.length }
+      }
+      if (action === 'inspect') {
+        if (typeof args?.file !== 'string') return { ok: false, error: 'file is required' }
+        const pack = await readPack(args.file)
+        return { ok: true, manifest: pack.manifest, verified: verifyPack(pack) }
+      }
+      if (action === 'install') {
+        if (typeof args?.file !== 'string') return { ok: false, error: 'file is required' }
+        const state = await collectState(ctx)
+        const result = await installPack({
+          packFile: args.file,
+          profileDir: state.profile.dir,
+          home: state.home,
+          dryRun: args?.confirm !== true,
+        })
+        return {
+          ok: true,
+          dryRun: args?.confirm !== true,
+          actions: result.actions,
+          pending: result.pending.length,
+          held: result.held.map((item) => item.name),
+          backupDir: result.backupDir,
+        }
+      }
+      if (action === 'restore') {
+        const state = await collectState(ctx)
+        const backups = (await listBackups(state.home)).filter((item) => item.plan)
+        const wanted = typeof args?.stamp === 'string' ? args.stamp : 'latest'
+        const chosen = wanted === 'latest' ? backups[0] : backups.find((item) => item.stamp === wanted)
+        if (!chosen) return { ok: false, error: 'no backup named ' + wanted }
+        const result = await restoreBackup({ backupDir: chosen.dir, profileDir: state.profile.dir, home: state.home })
+        return { ok: true, stamp: chosen.stamp, ...result }
+      }
+      return { ok: false, error: 'unknown action "' + String(action) + '"' }
+    },
+  }
+}
+
+/**
  * Register the browser routes.
  * @param ctx - Host context carrying the web server.
  */
 export function apply(ctx) {
   const log = createLogger()
+
+  ctx.effect(() => ctx.tools.register(createPluginPackTool(ctx)), 'plugin-pack: agent tool')
   ctx.inject(['webServer'], (scope) => {
     scope.effect(() => {
       const off = [

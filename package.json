@@ -40,6 +40,14 @@
   },
   "license": "MIT",
   "author": "879745uhjun",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/879745uhjun/dsh-plugin-pack.git"
+  },
+  "homepage": "https://github.com/879745uhjun/dsh-plugin-pack#readme",
+  "bugs": {
+    "url": "https://github.com/879745uhjun/dsh-plugin-pack/issues"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

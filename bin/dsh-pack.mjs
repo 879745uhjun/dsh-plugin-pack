@@ -9,7 +9,8 @@ import { promisify } from 'node:util'
 import { diagnose, requiredDsh, summarize } from '../lib/compat.mjs'
 import { installPack } from '../lib/install.mjs'
 import { createPack, readPack, verifyPack } from '../lib/pack.mjs'
-import { listBackups, restoreBackup } from '../lib/restore.mjs'
+import { currentTag, latestLocalTag, upgradeToLatestTag } from '../lib/align.mjs'
+import { listBackups, pruneBackups, restoreBackup } from '../lib/restore.mjs'
 import { listProfiles, resolveDshHome, scanProfile } from '../lib/scan.mjs'
 import { compareVersions } from '../lib/semver.mjs'
 
@@ -26,6 +27,8 @@ const USAGE = [
   '  install <pack>           preflight, back up, then install',
   '  backups                  list install backups under the DSH home',
   '  restore <stamp|latest>   undo one install from its backup',
+  '  prune [--keep N]         keep only the newest install backups',
+  '  align [--upgrade]        show each plugin tag vs its newest tag',
   '',
   'Options:',
   '  --profile <dir>   profile directory (default: the single profile under the DSH home)',
@@ -311,6 +314,57 @@ async function commandRestore(positional, flags) {
   ].join('\n')
 }
 
+/** dsh-pack prune [--keep N] */
+async function commandPrune(flags) {
+  const home = resolveDshHome(typeof flags.home === 'string' ? flags.home : undefined)
+  const keep = Number(flags.keep ?? 10)
+  const result = await pruneBackups(home, { keep, dryRun: Boolean(flags['dry-run']) })
+  if (result.removed.length === 0) return 'nothing to prune (kept ' + result.kept + ')'
+  return result.removed.map((item) => (flags['dry-run'] ? 'would remove ' : 'removed ') + item.stamp).join('\n')
+}
+
+/** dsh-pack align [--upgrade] [--fetch] [--only a,b] */
+async function commandAlign(flags) {
+  const profile = await pickProfile(flags)
+  const theScan = await scanProfile({ profileDir: profile.dir, home: flags.home })
+  const only = typeof flags.only === 'string' ? new Set(flags.only.split(',').map((item) => item.trim())) : null
+  const lines = []
+  for (const plugin of theScan.plugins) {
+    if (!plugin.dir || (only && !only.has(plugin.name))) continue
+    let from = null
+    try {
+      from = await currentTag(plugin.dir)
+    } catch {
+      continue
+    }
+    if (from === null && !flags.upgrade) {
+      lines.push(plugin.name.padEnd(26) + 'untagged checkout')
+      continue
+    }
+    let to = null
+    try {
+      to = await latestLocalTag(plugin.dir, Boolean(flags.fetch))
+    } catch {
+      to = null
+    }
+    if (!to) {
+      lines.push(plugin.name.padEnd(26) + 'no tags')
+      continue
+    }
+    if (flags.upgrade && from !== to) {
+      const moved = await upgradeToLatestTag(plugin.dir, { fetch: Boolean(flags.fetch) })
+      if (!moved.ok) {
+        lines.push(plugin.name.padEnd(26) + 'skipped: ' + moved.skipped)
+        continue
+      }
+      lines.push(plugin.name.padEnd(26) + (moved.from ?? 'untagged') + ' -> ' + moved.to + (moved.changed ? '  (moved)' : ''))
+      continue
+    }
+    lines.push(plugin.name.padEnd(26) + (from ?? 'untagged') + (from === to ? '  up to date' : '  -> ' + to))
+  }
+  return lines.join('\n') || 'no tagged plugin found'
+}
+
 const { command, positional, flags } = parseArgs(process.argv.slice(2))
 
 // --pnpm lets a plain CLI run reuse the desktop runtime's pnpm.cjs for lock sync.
@@ -333,6 +387,10 @@ try {
     console.log(await commandBackups(flags))
   } else if (command === 'restore') {
     console.log(await commandRestore(positional, flags))
+  } else if (command === 'prune') {
+    console.log(await commandPrune(flags))
+  } else if (command === 'align') {
+    console.log(await commandAlign(flags))
   } else {
     console.error('unknown command: ' + command)
     console.error(USAGE)

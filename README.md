@@ -41,3 +41,34 @@ Received <Buffer 50 4b 03 04 ...>
 - **配置备份**：包内 `config/*.json` 覆盖已有文件前，先复制到 `.dsh/backups/<时间戳>/config/`；安装失败回滚时一并还原。
 - **降级保护**：包版本低于本机时标为「降级」，默认不写，需显式「覆盖」。
 - **锁同步**：写入后调用 `pnpm install --lockfile-only`，失败只警告。
+
+## 命令一览
+
+~~~bash
+node bin/dsh-pack.mjs scan
+node bin/dsh-pack.mjs create dsh-toolkit --select a,b --out out/x.dshpack
+node bin/dsh-pack.mjs inspect out/x.dshpack
+node bin/dsh-pack.mjs verify  out/x.dshpack
+node bin/dsh-pack.mjs install out/x.dshpack            # dry run
+node bin/dsh-pack.mjs install out/x.dshpack --yes      # write
+node bin/dsh-pack.mjs backups
+node bin/dsh-pack.mjs restore latest|20261118-124713
+node bin/dsh-pack.mjs prune --keep 10
+node bin/dsh-pack.mjs align [--upgrade] [--fetch]
+~~~
+
+在应用之外跑时，lock 同步需要显式指定 pnpm：
+
+~~~bash
+node bin/dsh-pack.mjs restore latest --pnpm "D:/Tools/Deepseek DSH/resources/runtime/primary-runtime/dependencies/pnpm/bin/pnpm.cjs"
+~~~
+
+## Agent 工具
+
+宿主注册了 plugin_pack：state / create / inspect / install（需 confirm）/ restore。
+页面上能做的事，对话里也能做。
+
+## 对齐到最新 tag
+
+align 默认只报告（当前 tag vs 最新 tag）；--upgrade 才会 git checkout <tag>，
+遇到未提交改动会拒绝（dirty work tree），不会 reset 任何东西。
