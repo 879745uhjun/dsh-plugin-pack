@@ -26,7 +26,7 @@ window.__ModuleLoader__.load({
       '.pp-tabs{display:flex;gap:4px;margin-top:14px;border-bottom:1px solid var(--dsw-alias-border-l2,#2b2b32)}',
       '.pp-tab{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;font-size:12.5px;cursor:pointer;',
       '  color:var(--dsw-alias-label-tertiary,#76767f);background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px}',
-      '.pp-tab.on{color:var(--dsw-alias-label-primary,#ececef);border-bottom-color:var(--dsw-alias-brand-primary,#4b8bf5);font-weight:600}',
+      '.pp-tab.on{color:var(--dsw-alias-label-primary,#ececef);border-bottom-color:#4b8bf5;font-weight:600}',
       '.pp-badge{font-size:10px;padding:0 6px;height:16px;display:inline-flex;align-items:center;border-radius:20px;',
       '  background:var(--dsw-alias-bg-layer-2,#25252b);color:var(--dsw-alias-label-secondary,#a7a7b0)}',
       '.pp-body{flex:1;min-height:0;display:flex;gap:14px;padding:16px 24px 20px}',
@@ -45,7 +45,7 @@ window.__ModuleLoader__.load({
       '.pp-name{font-size:11.5px;font-weight:600;font-family:"Cascadia Mono",Consolas,monospace}',
       '.pp-meta{font-size:10.5px;color:var(--dsw-alias-label-tertiary,#76767f);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.pp-cb{width:15px;height:15px;border-radius:4px;border:1px solid var(--dsw-alias-border-l3,#4a4a55);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:10px;color:#fff}',
-      '.pp-cb.on{background:var(--dsw-alias-brand-primary,#4b8bf5);border-color:var(--dsw-alias-brand-primary,#4b8bf5)}',
+      '.pp-cb.on{background:#4b8bf5;border-color:#4b8bf5}',
       '.pp-pill{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 8px;border-radius:20px;font-size:10.5px;border:1px solid transparent;white-space:nowrap}',
       '.pp-ok{color:#3ecf8e;background:rgba(62,207,142,.12);border-color:rgba(62,207,142,.28)}',
       '.pp-warn{color:#eeb244;background:rgba(238,178,68,.12);border-color:rgba(238,178,68,.3)}',
@@ -54,7 +54,7 @@ window.__ModuleLoader__.load({
       '.pp-mono{font-family:"Cascadia Mono",Consolas,monospace;font-size:10.5px}',
       '.pp-btn{height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,#3a3a43);',
       '  background:var(--dsw-alias-bg-layer-2,#25252b);color:var(--dsw-alias-label-primary,#ececef);font:inherit;font-size:12px;cursor:pointer}',
-      '.pp-btn.primary{background:var(--dsw-alias-brand-primary,#4b8bf5);border-color:var(--dsw-alias-brand-primary,#4b8bf5);color:#fff}',
+      '.pp-btn.pp-primary{background:#4b8bf5;border-color:#4b8bf5;color:#fff;font-weight:500}',
       '.pp-btn:disabled{opacity:.5;cursor:default}',
       '.pp-input{height:30px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,#2b2b32);background:var(--dsw-alias-bg-layer-1,#151518);',
       '  color:inherit;padding:0 9px;font:inherit;font-size:12px;width:100%;box-sizing:border-box}',
@@ -123,7 +123,7 @@ window.__ModuleLoader__.load({
           h('td', null, checkbox(on, () => toggle(plugin.name))),
           h('td', null, h('div', { className: 'pp-name' }, plugin.name), h('div', { className: 'pp-meta' }, meta)),
           h('td', null, h('span', { className: 'pp-mono' }, plugin.version ?? '?')),
-          h('td', null, h('span', { className: 'pp-mono' }, plugin.enginesDsh ?? '-')),
+          h('td', null, h('span', { className: 'pp-mono', style: { whiteSpace: 'nowrap', fontSize: '10px' } }, plugin.enginesDsh ?? '-')),
           h('td', null, h('span', { className: 'pp-pill ' + pair[0] }, pair[1])))
       })
 
@@ -131,8 +131,8 @@ window.__ModuleLoader__.load({
         h('colgroup', null,
           h('col', { style: { width: '36px' } }),
           h('col', null),
-          h('col', { style: { width: '76px' } }),
-          h('col', { style: { width: '132px' } }),
+          h('col', { style: { width: '70px' } }),
+          h('col', { style: { width: '152px' } }),
           h('col', { style: { width: '86px' } })),
         h('thead', null, h('tr', null,
           h('th', null, ''), h('th', null, '插件'), h('th', null, '版本'), h('th', null, '兼容范围'), h('th', null, '状态'))),
@@ -166,7 +166,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'pp-card-h' }, '生成'),
           h('div', { className: 'pp-card-b' },
             h('button', {
-              className: 'pp-btn primary',
+              className: 'pp-btn pp-primary',
               disabled: busy || chosen.length === 0,
               onClick: () => onCreate(chosen.map((plugin) => plugin.name)),
             }, busy ? '打包中…' : '生成 .dshpack'),
@@ -226,7 +226,7 @@ window.__ModuleLoader__.load({
         h('td', null, h('span', { className: 'pp-mono' }, String(pack.plugins))),
         h('td', null, h('div', { className: 'pp-row' },
           h('button', { className: 'pp-btn', disabled: busy, onClick: () => onPreflight(pack.file) }, '预检'),
-          h('button', { className: 'pp-btn primary', disabled: busy, onClick: () => onInstall(pack.file) }, '安装')))))
+          h('button', { className: 'pp-btn pp-primary', disabled: busy, onClick: () => onInstall(pack.file) }, '安装')))))
 
       const table = h('table', { className: 'pp-table' },
         h('colgroup', null,
@@ -269,10 +269,15 @@ window.__ModuleLoader__.load({
           const response = await fetch(STATE_URL, { headers: { accept: 'application/json' } })
           const payload = await response.json()
           if (!payload.ok) throw new Error(payload.error ?? 'state failed')
+          // The page never lists itself: it is the tool, not pack content.
+          payload.plugins = payload.plugins.filter((plugin) => plugin.name !== 'dsh-plugin-pack')
           setState(payload)
           setSelection((previous) => {
             if (previous.size > 0) return previous
-            return new Set(payload.plugins.map((plugin) => plugin.name))
+            // Local (linked) plugins are the author's own; registry bundles such
+            // as dsh-ops are large and belong to the app, so they start unselected.
+            const linked = payload.plugins.filter((plugin) => plugin.kind === 'linked')
+            return new Set((linked.length > 0 ? linked : payload.plugins).map((plugin) => plugin.name))
           })
         } catch (cause) {
           setError(cause.message)

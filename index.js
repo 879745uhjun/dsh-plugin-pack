@@ -161,7 +161,8 @@ export async function collectState(ctx) {
   const profile = profiles.find((item) => item.name === 'desktop') ?? profiles[0]
   const scan = await scanProfile({ profileDir: profile.dir, home })
   const plugins = scan.plugins
-    .filter((plugin) => plugin.kind !== 'builtin')
+    // The pack tool lists plugins, it is not pack content: keep it out of its own page.
+    .filter((plugin) => plugin.kind !== 'builtin' && plugin.name !== 'dsh-plugin-pack')
     .map((plugin) => ({
       name: plugin.name,
       version: plugin.version ?? null,
