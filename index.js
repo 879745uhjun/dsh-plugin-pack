@@ -159,17 +159,35 @@ export async function listPacks(home) {
   return packs
 }
 
-/** Highest semver tag in git ls-remote --tags --refs output, or null. */
-export function highestTag(stdout) {
+/** Highest semver in a list of version strings, or null. */
+export function highestVersion(values) {
   let best = null
-  for (const line of String(stdout ?? '').split('\n')) {
-    const match = /refs\/tags\/(.+)$/.exec(line.trim())
-    if (!match) continue
-    const version = match[1].replace(/^v/, '')
+  for (const raw of values ?? []) {
+    const version = String(raw).trim().replace(/^v/, '')
     if (!/^\d+\.\d+\.\d+/.test(version)) continue
     if (!best || compareVersions(version, best) > 0) best = version
   }
   return best
+}
+
+/** Highest semver tag in git ls-remote --tags --refs output, or null. */
+export function highestTag(stdout) {
+  const versions = String(stdout ?? '')
+    .split('\n')
+    .map((line) => /refs\/tags\/(.+)$/.exec(line.trim())?.[1])
+    .filter(Boolean)
+  return highestVersion(versions)
+}
+
+/** Newest tag of the local checkout, which works offline. */
+async function localTag(dir) {
+  if (!dir) return null
+  try {
+    const { stdout } = await run('git', ['-C', dir, 'tag', '--list'], { timeout: 4000, windowsHide: true })
+    return highestVersion(stdout.split('\n'))
+  } catch {
+    return null
+  }
 }
 
 /** Newest GitHub tag of one repository; throws when git fails. */
@@ -206,6 +224,7 @@ export async function collectState(ctx) {
     .filter((plugin) => plugin.kind !== 'builtin' && plugin.name !== 'dsh-plugin-pack')
     .map((plugin) => ({
       name: plugin.name,
+      dir: plugin.dir ?? null,
       version: plugin.version ?? null,
       kind: plugin.kind,
       size: plugin.size ?? 0,
@@ -346,11 +365,19 @@ function createLatestHandler(ctx, log) {
       const latest = {}
       const errors = []
       await Promise.all(targets.map(async (plugin) => {
+        // The checkout that produced the pack is the truest source: its tags work
+        // offline. Only fall back to the network when it has none.
+        const local = await localTag(plugin.dir)
+        if (local) {
+          latest[plugin.name] = local
+          return
+        }
         try {
           const version = await latestTag(plugin.repo)
           if (version) latest[plugin.name] = version
+          else errors.push(plugin.name + ': 没有可用 tag')
         } catch (error) {
-          errors.push(plugin.name + ': ' + (error.code ?? error.message))
+          errors.push(plugin.name + ': ' + (error.code ?? error.message ?? 'git failed'))
         }
       }))
       sendJson(response, 200, { ok: true, latest, errors, checked: targets.length })

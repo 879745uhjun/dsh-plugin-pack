@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { createInstallHandler, highestTag, listPacks } from '../index.js'
+import { createInstallHandler, highestTag, highestVersion, listPacks } from '../index.js'
 import { createPack, readPack } from '../lib/pack.mjs'
 
 /** A one-plugin profile that can be packed. */
@@ -34,6 +34,7 @@ test('highestTag picks the newest semver tag and ignores noise', () => {
   assert.equal(highestTag(stdout), '1.10.0')
   assert.equal(highestTag(''), null)
   assert.equal(highestTag('nothing here'), null)
+  assert.equal(highestVersion(['v2.0.0', '1.9.9', 'nightly']), '2.0.0')
 })
 
 test('host and lib never assign an unawaited async call', async () => {
