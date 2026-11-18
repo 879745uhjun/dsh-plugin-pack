@@ -52,6 +52,22 @@ test('createPack writes a manifest, plugin trees, config and checksums', async (
   assert.equal(verifyPack(pack).ok, true)
 })
 
+test('createPack records the aligned latest versions', async () => {
+  const { home, profileDir } = await makeProfile()
+  const out = join(await mkdtemp(join(tmpdir(), 'dsh-pack-out-')), 'aligned.dshpack')
+  const result = await createPack({
+    profileDir,
+    home,
+    name: 'aligned',
+    align: true,
+    latest: { 'dsh-alpha': '1.4.0' },
+    out,
+  })
+  assert.equal(result.manifest.align.enabled, true)
+  assert.equal(result.manifest.align.source, 'github-tags')
+  assert.equal(result.manifest.align.latest['dsh-alpha'], '1.4.0')
+})
+
 test('createPack honours a selection', async () => {
   const { home, profileDir } = await makeProfile()
   const out = join(await mkdtemp(join(tmpdir(), 'dsh-pack-out-')), 'one.dshpack')

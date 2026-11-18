@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { listPacks } from '../index.js'
+import { highestTag, listPacks } from '../index.js'
 import { createPack, readPack } from '../lib/pack.mjs'
 
 /** A one-plugin profile that can be packed. */
@@ -21,6 +21,19 @@ async function makeSource() {
   )
   return { root, home, profileDir }
 }
+
+test('highestTag picks the newest semver tag and ignores noise', () => {
+  const stdout = [
+    'a1\trefs/tags/v1.2.0',
+    'b2\trefs/tags/v1.10.0',
+    'c3\trefs/tags/v1.9.9',
+    'd4\trefs/tags/nightly',
+    'e5\trefs/tags/v0.9.0',
+  ].join('\n')
+  assert.equal(highestTag(stdout), '1.10.0')
+  assert.equal(highestTag(''), null)
+  assert.equal(highestTag('nothing here'), null)
+})
 
 test('listPacks reads a real pack and survives a corrupt one', async () => {
   const { home, profileDir } = await makeSource()

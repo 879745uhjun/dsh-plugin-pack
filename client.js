@@ -16,6 +16,7 @@ window.__ModuleLoader__.load({
     const STATE_URL = '/plugin-pack/state'
     const CREATE_URL = '/plugin-pack/create'
     const INSTALL_URL = '/plugin-pack/install'
+    const LATEST_URL = '/plugin-pack/latest'
 
     const CSS = [
       '.pp{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary,#e8e8ec);',
@@ -72,6 +73,10 @@ window.__ModuleLoader__.load({
       '.pp-note{font-size:10.5px;color:var(--dsw-alias-label-tertiary,#76767f);line-height:1.5}',
       '.pp-err{color:#f4736f;font-size:11.5px}',
       '.pp-row{display:flex;align-items:center;gap:6px}',
+      '.pp-up{color:#eeb244;font-size:10px;margin-left:4px;font-family:"Cascadia Mono",Consolas,monospace}',
+      '.pp-seg{display:inline-flex;border:1px solid var(--dsw-alias-border-l2,#3a3a43);border-radius:7px;overflow:hidden}',
+      '.pp-seg span{padding:2px 8px;font-size:10.5px;color:var(--dsw-alias-label-tertiary,#76767f);cursor:pointer}',
+      '.pp-seg span.on{background:#4b8bf5;color:#fff}',
       '.pp-scroll{overflow:auto;min-height:0}',
     ].join('')
 
@@ -85,6 +90,18 @@ window.__ModuleLoader__.load({
       return (bytes / 1024 / 1024).toFixed(1) + ' MB'
     }
 
+    /** True when version a is newer than version b (dotted numerics only). */
+    function isNewer(a, b) {
+      const left = String(a ?? '').replace(/^v/, '').split('.').map(Number)
+      const right = String(b ?? '').replace(/^v/, '').split('.').map(Number)
+      for (let i = 0; i < 3; i += 1) {
+        const l = left[i] ?? 0
+        const r = right[i] ?? 0
+        if (l !== r) return l > r
+      }
+      return false
+    }
+
     function shortSlot(slot) {
       const parts = slot.split('.')
       return parts.length > 3 ? '…' + parts.slice(-2).join('.') : slot
@@ -95,7 +112,7 @@ window.__ModuleLoader__.load({
     }
 
     function packTab(props) {
-      const { state, selection, toggle, packName, setPackName, version, setVersion, onCreate, busy, result } = props
+      const { state, selection, toggle, packName, setPackName, version, setVersion, onCreate, busy, result, latest, latestNote, onCheckLatest } = props
       const rank = { BLOCKER: 3, WARN: 2, INFO: 1, PASS: 0 }
       const levelOf = new Map()
       for (const item of state.diagnostics ?? []) {
@@ -114,6 +131,7 @@ window.__ModuleLoader__.load({
 
       const chosen = state.plugins.filter((plugin) => selection.has(plugin.name))
       const total = chosen.reduce((sum, plugin) => sum + (plugin.size ?? 0), 0)
+      const outdatedCount = chosen.filter((plugin) => latest[plugin.name] && isNewer(latest[plugin.name], plugin.version)).length
 
       const rows = state.plugins.map((plugin) => {
         const pair = status(plugin.name)
@@ -122,7 +140,11 @@ window.__ModuleLoader__.load({
         return h('tr', { key: plugin.name },
           h('td', null, checkbox(on, () => toggle(plugin.name))),
           h('td', null, h('div', { className: 'pp-name' }, plugin.name), h('div', { className: 'pp-meta' }, meta)),
-          h('td', null, h('span', { className: 'pp-mono' }, plugin.version ?? '?')),
+          h('td', null,
+            h('span', { className: 'pp-mono' }, plugin.version ?? '?'),
+            latest[plugin.name] && isNewer(latest[plugin.name], plugin.version)
+              ? h('span', { className: 'pp-up' }, '↑ ' + latest[plugin.name])
+              : null),
           h('td', null, h('span', { className: 'pp-mono', style: { whiteSpace: 'nowrap', fontSize: '10px' } }, plugin.enginesDsh ?? '-')),
           h('td', null, h('span', { className: 'pp-pill ' + pair[0] }, pair[1])))
       })
@@ -154,14 +176,19 @@ window.__ModuleLoader__.load({
             h('div', { className: 'pp-field' }, h('label', null, '包名'),
               h('input', { className: 'pp-input', value: packName, onChange: (event) => setPackName(event.target.value) })),
             h('div', { className: 'pp-field' }, h('label', null, '包版本'),
-              h('input', { className: 'pp-input', value: version, onChange: (event) => setVersion(event.target.value) })))),
+              h('input', { className: 'pp-input', value: version, onChange: (event) => setVersion(event.target.value) })),
+            h('div', { className: 'pp-kv' }, h('span', null, '最新版本'),
+              h('button', { className: 'pp-btn', disabled: busy, onClick: onCheckLatest }, busy ? '检查中…' : '检查更新')),
+            h('div', { className: 'pp-note' }, latestNote ?? '读取 GitHub tag，只用于版本提示与清单锁定'))),
         h('div', { className: 'pp-card' },
           h('div', { className: 'pp-card-h' }, '摘要'),
           h('div', { className: 'pp-card-b' },
             h('div', { className: 'pp-kv' }, h('span', null, '已选'), h('b', null, chosen.length + ' / ' + state.plugins.length)),
             h('div', { className: 'pp-kv' }, h('span', null, '解压后'), h('b', null, fmtBytes(total))),
             h('div', { className: 'pp-kv' }, h('span', null, '阻断 / 警告'),
-              h('b', null, (state.summary?.counts?.BLOCKER ?? 0) + ' / ' + (state.summary?.counts?.WARN ?? 0))))),
+              h('b', null, (state.summary?.counts?.BLOCKER ?? 0) + ' / ' + (state.summary?.counts?.WARN ?? 0))),
+            h('div', { className: 'pp-kv' }, h('span', null, '可升级'),
+              h('b', null, String(outdatedCount))))),
         h('div', { className: 'pp-card', style: { flex: 1 } },
           h('div', { className: 'pp-card-h' }, '生成'),
           h('div', { className: 'pp-card-b' },
@@ -214,7 +241,7 @@ window.__ModuleLoader__.load({
     }
 
     function importTab(props) {
-      const { state, onPreflight, onInstall, busy, plan } = props
+      const { state, onPreflight, onInstall, busy, plan, choices, setChoices } = props
       const list = state.packs ?? []
       if (list.length === 0) return h('div', { className: 'pp-empty' }, '还没有生成过插件包；到「打包台」生成一个')
 
@@ -235,15 +262,31 @@ window.__ModuleLoader__.load({
         h('thead', null, h('tr', null, h('th', null, '包'), h('th', null, '大小'), h('th', null, '插件'), h('th', null, '操作'))),
         h('tbody', null, rows))
 
+      const conflictNames = new Set((plan?.conflicts ?? []).flatMap((item) => item.plugins ?? []))
       const planRows = plan && plan.actions
-        ? plan.actions.map((action) => h('div', { key: action.name, className: 'pp-kv' },
-            h('span', { className: 'pp-mono' }, action.name),
-            h('b', null, h('span', { className: 'pp-pill ' + (ACTION_CLASS[action.action] ?? 'pp-badge') }, ACTION_LABEL[action.action] ?? action.action))))
+        ? plan.actions.map((action) => {
+            const needsChoice = conflictNames.has(action.name) && action.action !== 'skip'
+            const choice = choices[action.name] ?? 'skip'
+            const control = needsChoice
+              ? h('span', { className: 'pp-seg' }, ['skip', 'overwrite', 'abort'].map((key) => h('span', {
+                  key,
+                  className: choice === key ? 'on' : '',
+                  onClick: () => setChoices({ ...choices, [action.name]: key }),
+                }, key === 'skip' ? '跳过' : key === 'overwrite' ? '覆盖' : '中止')))
+              : h('span', { className: 'pp-pill ' + (ACTION_CLASS[action.action] ?? 'pp-badge') }, ACTION_LABEL[action.action] ?? action.action)
+            return h('div', { key: action.name, className: 'pp-kv' },
+              h('span', { className: 'pp-mono', title: action.installedVersion ? '本机 ' + action.installedVersion : '' }, action.name),
+              h('b', null, control))
+          })
         : [h('div', { key: 'hint', className: 'pp-note' }, '点「预检」看每个插件的动作，再决定是否安装')]
+      const planContent = plan && (plan.conflicts ?? []).length
+        ? [h('div', { key: 'conflicts', className: 'pp-note', style: { color: '#eeb244', marginBottom: '6px' } },
+            '冲突：' + plan.conflicts.map((item) => item.location.replace('slot:', '')).join('、')), ...planRows]
+        : planRows
 
       const planCard = h('div', { className: 'pp-card', style: { flex: 1 } },
         h('div', { className: 'pp-card-h' }, '预检结果'),
-        h('div', { className: 'pp-card-b pp-scroll' }, planRows))
+        h('div', { className: 'pp-card-b pp-scroll' }, planContent))
 
       return h('div', { className: 'pp-body' },
         h('div', { className: 'pp-main' },
@@ -263,6 +306,9 @@ window.__ModuleLoader__.load({
       const [selection, setSelection] = useState(new Set())
       const [packName, setPackName] = useState('dsh-toolkit')
       const [version, setVersion] = useState('1.0.0')
+      const [latest, setLatest] = useState({})
+      const [latestNote, setLatestNote] = useState(null)
+      const [choices, setChoices] = useState({})
 
       const load = useCallback(async () => {
         try {
@@ -302,7 +348,7 @@ window.__ModuleLoader__.load({
           const response = await fetch(CREATE_URL, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ name: packName, version, select }),
+            body: JSON.stringify({ name: packName, version, select, align: Object.keys(latest).length > 0, latest }),
           })
           const payload = await response.json()
           if (!payload.ok) throw new Error(payload.error ?? 'create failed')
@@ -330,6 +376,7 @@ window.__ModuleLoader__.load({
           const payload = await post({ file, dryRun: true })
           if (!payload.ok) throw new Error(payload.error ?? 'preflight failed')
           setPlan(payload)
+          setChoices({})
         } catch (cause) {
           setPlan({ actions: [], error: cause.message })
         } finally {
@@ -340,7 +387,9 @@ window.__ModuleLoader__.load({
       const install = useCallback(async (file) => {
         setBusy(true)
         try {
-          const payload = await post({ file, dryRun: false })
+          const skip = Object.keys(choices).filter((name) => choices[name] === 'skip')
+          const abort = Object.values(choices).includes('abort')
+          const payload = await post({ file, dryRun: false, skip, abort })
           if (!payload.ok) throw new Error(payload.error ?? 'install failed')
           setPlan(payload)
           await load()
@@ -349,7 +398,27 @@ window.__ModuleLoader__.load({
         } finally {
           setBusy(false)
         }
-      }, [post, load])
+      }, [post, load, choices])
+
+      const checkLatest = useCallback(async () => {
+        setBusy(true)
+        setLatestNote('正在读取 GitHub tag…')
+        try {
+          const response = await fetch(LATEST_URL, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ select: [...selection] }),
+          })
+          const payload = await response.json()
+          if (!payload.ok) throw new Error(payload.error ?? 'latest failed')
+          setLatest(payload.latest ?? {})
+          setLatestNote(Object.keys(payload.latest ?? {}).length + ' 个仓库已查 · ' + (payload.errors?.length ?? 0) + ' 个失败')
+        } catch (cause) {
+          setLatestNote('检查失败：' + cause.message)
+        } finally {
+          setBusy(false)
+        }
+      }, [selection])
 
       if (error) return h('div', { className: 'pp' }, h('div', { className: 'pp-empty pp-err' }, '无法读取插件信息：' + error))
       if (!state) return h('div', { className: 'pp' }, h('div', { className: 'pp-empty' }, '正在扫描 profile…'))
@@ -366,10 +435,13 @@ window.__ModuleLoader__.load({
           h('button', { className: tab === 'import' ? 'pp-tab on' : 'pp-tab', onClick: () => setTab('import') }, '导入')))
 
       const body = tab === 'pack'
-        ? packTab({ state, selection, toggle, packName, setPackName, version, setVersion, onCreate: create, busy, result })
+        ? packTab({
+            state, selection, toggle, packName, setPackName, version, setVersion, onCreate: create, busy, result,
+            latest, latestNote, onCheckLatest: checkLatest,
+          })
         : tab === 'compat'
           ? compatTab(state)
-          : importTab({ state, onPreflight: preflight, onInstall: install, busy, plan })
+          : importTab({ state, onPreflight: preflight, onInstall: install, busy, plan, choices, setChoices })
 
       return h('div', { className: 'pp' }, head, body)
     }

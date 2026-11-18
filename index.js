@@ -12,13 +12,18 @@
  *
  * @module dsh-plugin-pack
  */
+import { execFile } from 'node:child_process'
 import { readdir, readFile, stat } from 'node:fs/promises'
+import { promisify } from 'node:util'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { diagnose, requiredDsh, summarize } from './lib/compat.mjs'
 import { installPack } from './lib/install.mjs'
 import { createPack, readPack, verifyPack } from './lib/pack.mjs'
 import { listProfiles, resolveDshHome, scanProfile } from './lib/scan.mjs'
+import { compareVersions } from './lib/semver.mjs'
+
+const run = promisify(execFile)
 
 /** Cordis plugin name. */
 export const name = 'dsh-plugin-pack'
@@ -31,6 +36,7 @@ const ROUTE_STATE = '/plugin-pack/state'
 const ROUTE_CREATE = '/plugin-pack/create'
 const ROUTE_INSPECT = '/plugin-pack/inspect'
 const ROUTE_INSTALL = '/plugin-pack/install'
+const ROUTE_LATEST = '/plugin-pack/latest'
 
 /** Request-body ceiling for the browser routes. */
 const MAX_BODY_BYTES = 256 * 1024
@@ -153,6 +159,41 @@ export async function listPacks(home) {
   return packs
 }
 
+/** Highest semver tag in git ls-remote --tags --refs output, or null. */
+export function highestTag(stdout) {
+  let best = null
+  for (const line of String(stdout ?? '').split('\n')) {
+    const match = /refs\/tags\/(.+)$/.exec(line.trim())
+    if (!match) continue
+    const version = match[1].replace(/^v/, '')
+    if (!/^\d+\.\d+\.\d+/.test(version)) continue
+    if (!best || compareVersions(version, best) > 0) best = version
+  }
+  return best
+}
+
+/** Newest GitHub tag of one repository; throws when git fails. */
+async function latestTag(repo) {
+  const { stdout } = await run('git', ['ls-remote', '--tags', '--refs', 'https://github.com/' + repo + '.git'], {
+    timeout: 8000,
+    windowsHide: true,
+  })
+  return highestTag(stdout)
+}
+
+/** Turn a manifest plugin entry back into the shape diagnose() expects. */
+function toRecord(entry) {
+  return {
+    name: entry.name,
+    version: entry.version,
+    enginesDsh: entry.engines?.dsh ?? entry.enginesDsh ?? null,
+    dependencies: entry.dependencies ?? {},
+    slots: entry.slots ?? [],
+    takeoverSlots: entry.takeoverSlots ?? [],
+    repo: entry.repo ?? null,
+  }
+}
+
 /** Scan the active profile and describe everything the page shows. */
 export async function collectState(ctx) {
   const home = resolveHome(ctx)
@@ -231,6 +272,8 @@ function createBuildHandler(ctx, log) {
         select,
         targetDsh: state.targetDsh,
         author: payload.author ?? null,
+        align: Boolean(payload.align),
+        latest: payload.latest && typeof payload.latest === 'object' ? payload.latest : undefined,
         out,
       })
       const diagnostics = diagnose({
@@ -284,6 +327,40 @@ function createInspectHandler(log) {
   }
 }
 
+/** POST /plugin-pack/latest — GitHub tag of every selected plugin that has a repo. */
+function createLatestHandler(ctx, log) {
+  return async function handleLatest(request, response) {
+    try {
+      if (!isAcceptableOrigin(request)) {
+        sendJson(response, 403, { ok: false, error: 'cross-origin request refused' })
+        return
+      }
+      if (request.method !== 'POST') {
+        sendJson(response, 405, { ok: false, error: 'method not allowed' })
+        return
+      }
+      const payload = JSON.parse(await readBody(request, MAX_BODY_BYTES))
+      const state = await collectState(ctx)
+      const wanted = new Set(Array.isArray(payload.select) && payload.select.length ? payload.select : state.plugins.map((plugin) => plugin.name))
+      const targets = state.plugins.filter((plugin) => wanted.has(plugin.name) && plugin.repo)
+      const latest = {}
+      const errors = []
+      await Promise.all(targets.map(async (plugin) => {
+        try {
+          const version = await latestTag(plugin.repo)
+          if (version) latest[plugin.name] = version
+        } catch (error) {
+          errors.push(plugin.name + ': ' + (error.code ?? error.message))
+        }
+      }))
+      sendJson(response, 200, { ok: true, latest, errors, checked: targets.length })
+    } catch (error) {
+      log('latest failed', error)
+      sendJson(response, 500, { ok: false, error: error.message })
+    }
+  }
+}
+
 /** POST /plugin-pack/install */
 function createInstallHandler(ctx, log) {
   return async function handleInstall(request, response) {
@@ -298,7 +375,21 @@ function createInstallHandler(ctx, log) {
       }
       const payload = JSON.parse(await readBody(request, MAX_BODY_BYTES))
       if (typeof payload.file !== 'string') throw new Error('file is required')
+      if (payload.abort === true) {
+        sendJson(response, 200, { ok: true, aborted: true, actions: [], pending: 0, conflicts: [] })
+        return
+      }
       const state = await collectState(ctx)
+      const incoming = readPack(await readFile(payload.file))
+      const packNames = new Set(incoming.manifest.plugins.map((entry) => entry.name))
+      const merged = [
+        ...state.plugins.map(toRecord),
+        ...incoming.manifest.plugins.map(toRecord).filter((entry) => !state.plugins.some((plugin) => plugin.name === entry.name)),
+      ]
+      const conflicts = diagnose({ plugins: merged, targetDsh: state.targetDsh })
+        .filter((item) => item.rule === 'slot.unique')
+        .filter((item) => (item.plugins ?? []).some((name) => packNames.has(name)) && (item.plugins ?? []).some((name) => !packNames.has(name)))
+        .map((item) => ({ code: item.code, level: item.level, rule: item.rule, location: item.location, expected: item.expected, actual: item.actual, plugins: item.plugins }))
       const result = await installPack({
         packFile: payload.file,
         profileDir: state.profile.dir,
@@ -313,6 +404,7 @@ function createInstallHandler(ctx, log) {
         actions: result.actions,
         pending: result.pending.length,
         backupDir: result.backupDir,
+        conflicts,
       })
     } catch (error) {
       log('install failed', error)
@@ -334,6 +426,7 @@ export function apply(ctx) {
         scope.webServer.register({ kind: 'exact', path: ROUTE_CREATE, handler: createBuildHandler(ctx, log) }),
         scope.webServer.register({ kind: 'exact', path: ROUTE_INSPECT, handler: createInspectHandler(log) }),
         scope.webServer.register({ kind: 'exact', path: ROUTE_INSTALL, handler: createInstallHandler(ctx, log) }),
+        scope.webServer.register({ kind: 'exact', path: ROUTE_LATEST, handler: createLatestHandler(ctx, log) }),
       ]
       return () => {
         for (const remove of off) remove()
