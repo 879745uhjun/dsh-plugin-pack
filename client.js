@@ -279,10 +279,13 @@ window.__ModuleLoader__.load({
               h('b', null, control))
           })
         : [h('div', { key: 'hint', className: 'pp-note' }, '点「预检」看每个插件的动作，再决定是否安装')]
-      const planContent = plan && (plan.conflicts ?? []).length
-        ? [h('div', { key: 'conflicts', className: 'pp-note', style: { color: '#eeb244', marginBottom: '6px' } },
-            '冲突：' + plan.conflicts.map((item) => item.location.replace('slot:', '')).join('、')), ...planRows]
-        : planRows
+      const planError = plan && plan.error ? h('div', { key: 'error', className: 'pp-err' }, '预检失败：' + plan.error) : null
+      const planContent = planError
+        ? [planError]
+        : plan && (plan.conflicts ?? []).length
+          ? [h('div', { key: 'conflicts', className: 'pp-note', style: { color: '#eeb244', marginBottom: '6px' } },
+              '冲突：' + plan.conflicts.map((item) => item.location.replace('slot:', '')).join('、')), ...planRows]
+          : planRows
 
       const planCard = h('div', { className: 'pp-card', style: { flex: 1 } },
         h('div', { className: 'pp-card-h' }, '预检结果'),

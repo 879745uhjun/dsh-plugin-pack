@@ -362,7 +362,7 @@ function createLatestHandler(ctx, log) {
 }
 
 /** POST /plugin-pack/install */
-function createInstallHandler(ctx, log) {
+export function createInstallHandler(ctx, log) {
   return async function handleInstall(request, response) {
     try {
       if (!isAcceptableOrigin(request)) {
@@ -380,7 +380,7 @@ function createInstallHandler(ctx, log) {
         return
       }
       const state = await collectState(ctx)
-      const incoming = readPack(await readFile(payload.file))
+      const incoming = await readPack(await readFile(payload.file))
       const packNames = new Set(incoming.manifest.plugins.map((entry) => entry.name))
       const merged = [
         ...state.plugins.map(toRecord),

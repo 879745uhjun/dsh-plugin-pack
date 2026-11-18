@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { highestTag, listPacks } from '../index.js'
+import { createInstallHandler, highestTag, listPacks } from '../index.js'
 import { createPack, readPack } from '../lib/pack.mjs'
 
 /** A one-plugin profile that can be packed. */
@@ -33,6 +34,19 @@ test('highestTag picks the newest semver tag and ignores noise', () => {
   assert.equal(highestTag(stdout), '1.10.0')
   assert.equal(highestTag(''), null)
   assert.equal(highestTag('nothing here'), null)
+})
+
+test('host and lib never assign an unawaited async call', async () => {
+  const files = ['index.js', 'lib/pack.mjs', 'lib/install.mjs', 'lib/scan.mjs']
+  const pattern = /(?:const|let|var)\s+\w+\s*=\s*(readPack|createPack|installPack|scanProfile|readFile|readdir|stat|writeFile|mkdir|cp|rm|rename|symlink|listPacks)\(/
+  const offenders = []
+  for (const file of files) {
+    const source = await readFile(new URL('../' + file, import.meta.url), 'utf8')
+    source.split('\n').forEach((line, index) => {
+      if (pattern.test(line) && !line.includes('await ')) offenders.push(file + ':' + (index + 1) + ' ' + line.trim())
+    })
+  }
+  assert.deepEqual(offenders, [])
 })
 
 test('listPacks reads a real pack and survives a corrupt one', async () => {
@@ -66,6 +80,50 @@ test('readPack accepts a path or the archive bytes', async () => {
   const fromBuffer = await readPack(await readFile(file))
   assert.equal(fromBuffer.manifest.name, fromPath.manifest.name)
   assert.equal(fromBuffer.files.size, fromPath.files.size)
+})
+
+/** Minimal request emitter for the route handlers. */
+function fakeRequest(body) {
+  const req = new EventEmitter()
+  req.method = 'POST'
+  req.headers = {}
+  process.nextTick(() => {
+    req.emit('data', Buffer.from(body))
+    req.emit('end')
+  })
+  return req
+}
+
+/** Minimal response collector for the route handlers. */
+function fakeResponse() {
+  const res = { status: 0, body: '' }
+  res.writeHead = (status) => {
+    res.status = status
+  }
+  res.end = (chunk) => {
+    res.body += chunk ?? ''
+  }
+  return res
+}
+
+test('install preflight answers with actions for a real pack', async () => {
+  const { home, profileDir } = await makeSource()
+  const dir = join(home, 'plugin-packs')
+  await mkdir(dir, { recursive: true })
+  const file = join(dir, 'good-1.0.0.dshpack')
+  await createPack({ profileDir, home, name: 'good', version: '1.0.0', out: file })
+
+  const handler = createInstallHandler({ get: () => home }, () => {})
+  const request = fakeRequest(JSON.stringify({ file, dryRun: true }))
+  const response = fakeResponse()
+  await handler(request, response)
+
+  assert.equal(response.status, 200)
+  const payload = JSON.parse(response.body)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.actions.length, 1)
+  assert.equal(payload.actions[0].name, 'dsh-demo')
+  assert.ok(Array.isArray(payload.conflicts))
 })
 
 test('readPack rejects a buffer that is not an archive', async () => {
