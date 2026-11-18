@@ -81,8 +81,8 @@ window.__ModuleLoader__.load({
     ].join('')
 
     const LEVEL_CLASS = { BLOCKER: 'pp-bad', WARN: 'pp-warn', INFO: 'pp-info', PASS: 'pp-ok' }
-    const ACTION_CLASS = { add: 'pp-ok', replace: 'pp-info', skip: 'pp-badge', blocked: 'pp-bad' }
-    const ACTION_LABEL = { add: '新增', replace: '覆盖', skip: '跳过', blocked: '冲突' }
+    const ACTION_CLASS = { add: 'pp-ok', replace: 'pp-info', skip: 'pp-badge', blocked: 'pp-bad', downgrade: 'pp-warn' }
+    const ACTION_LABEL = { add: '新增', replace: '覆盖', skip: '跳过', blocked: '冲突', downgrade: '降级' }
 
     function fmtBytes(bytes) {
       if (!bytes) return '0 B'
@@ -265,7 +265,7 @@ window.__ModuleLoader__.load({
       const conflictNames = new Set((plan?.conflicts ?? []).flatMap((item) => item.plugins ?? []))
       const planRows = plan && plan.actions
         ? plan.actions.map((action) => {
-            const needsChoice = conflictNames.has(action.name) && action.action !== 'skip'
+            const needsChoice = (conflictNames.has(action.name) || action.action === 'downgrade') && action.action !== 'skip'
             const choice = choices[action.name] ?? 'skip'
             const control = needsChoice
               ? h('span', { className: 'pp-seg' }, ['skip', 'overwrite', 'abort'].map((key) => h('span', {
@@ -391,8 +391,9 @@ window.__ModuleLoader__.load({
         setBusy(true)
         try {
           const skip = Object.keys(choices).filter((name) => choices[name] === 'skip')
+          const overwrite = Object.keys(choices).filter((name) => choices[name] === 'overwrite')
           const abort = Object.values(choices).includes('abort')
-          const payload = await post({ file, dryRun: false, skip, abort })
+          const payload = await post({ file, dryRun: false, skip, overwrite, abort })
           if (!payload.ok) throw new Error(payload.error ?? 'install failed')
           setPlan(payload)
           await load()
@@ -415,7 +416,11 @@ window.__ModuleLoader__.load({
           const payload = await response.json()
           if (!payload.ok) throw new Error(payload.error ?? 'latest failed')
           setLatest(payload.latest ?? {})
-          setLatestNote(Object.keys(payload.latest ?? {}).length + ' 个仓库已查 · ' + (payload.errors?.length ?? 0) + ' 个失败')
+          const found = Object.keys(payload.latest ?? {}).length
+          const failed = payload.errors?.length ?? 0
+          setLatestNote(found === 0 && failed > 0
+            ? '无法连接 GitHub（' + failed + ' 个仓库均失败），版本提示暂不可用'
+            : found + ' 个仓库已查 · ' + failed + ' 个失败')
         } catch (cause) {
           setLatestNote('检查失败：' + cause.message)
         } finally {

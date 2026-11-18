@@ -68,6 +68,27 @@ test('installPack materialises plugins and rewrites the profile manifest', async
   assert.ok(existsSync(join(result.backupDir, 'plan.json')))
 })
 
+test('an older pack never downgrades the profile silently', async () => {
+  const { home, target, packFile } = await makeWorld()
+  const file = join(target, 'node_modules', 'dsh-alpha', 'package.json')
+  const pkg = JSON.parse(await readFile(file, 'utf8'))
+  pkg.version = '2.0.0'
+  await writeFile(file, JSON.stringify(pkg))
+
+  const plan = await planInstall({ pack: await readPack(packFile), profileDir: target })
+  assert.equal(plan.actions.find((action) => action.name === 'dsh-alpha').action, 'downgrade')
+
+  const held = await installPack({ packFile, profileDir: target, home })
+  assert.deepEqual(held.held.map((action) => action.name), ['dsh-alpha'])
+  const after = JSON.parse(await readFile(file, 'utf8'))
+  assert.equal(after.version, '2.0.0', 'the newer local version survives')
+
+  const forced = await installPack({ packFile, profileDir: target, home, overwrite: ['dsh-alpha'] })
+  assert.ok(forced.pending.some((action) => action.name === 'dsh-alpha'))
+  const downgraded = JSON.parse(await readFile(file, 'utf8'))
+  assert.equal(downgraded.version, '1.0.0', 'an explicit overwrite does write the older version')
+})
+
 test('a second install is a no-op', async () => {
   const { home, target, packFile } = await makeWorld()
   await installPack({ packFile, profileDir: target, home })
