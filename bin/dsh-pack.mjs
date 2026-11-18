@@ -35,6 +35,7 @@ const USAGE = [
   '  --version <v>     pack version (default: 1.0.0)',
   '  --dsh <v>         target DSH version (default: the highest engines lower bound)',
   '  --align           align each plugin to its newest GitHub tag',
+  '  --pnpm <file>     pnpm entry point (default: bundled runtime, then PATH)',
   '  --json            machine-readable output',
 ].join('\n')
 
@@ -311,6 +312,9 @@ async function commandRestore(positional, flags) {
 }
 
 const { command, positional, flags } = parseArgs(process.argv.slice(2))
+
+// --pnpm lets a plain CLI run reuse the desktop runtime's pnpm.cjs for lock sync.
+if (typeof flags.pnpm === 'string' && flags.pnpm.length > 0) process.env.DSH_PNPM = flags.pnpm
 
 try {
   if (!command || command === 'help' || flags.help) {
