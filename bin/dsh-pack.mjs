@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import { diagnose, requiredDsh, summarize } from '../lib/compat.mjs'
 import { installPack } from '../lib/install.mjs'
 import { createPack, readPack, verifyPack } from '../lib/pack.mjs'
+import { listBackups, restoreBackup } from '../lib/restore.mjs'
 import { listProfiles, resolveDshHome, scanProfile } from '../lib/scan.mjs'
 import { compareVersions } from '../lib/semver.mjs'
 
@@ -23,6 +24,8 @@ const USAGE = [
   '  inspect <pack>           print a pack manifest and its diagnostics',
   '  verify <pack>            check every checksum of a pack',
   '  install <pack>           preflight, back up, then install',
+  '  backups                  list install backups under the DSH home',
+  '  restore <stamp|latest>   undo one install from its backup',
   '',
   'Options:',
   '  --profile <dir>   profile directory (default: the single profile under the DSH home)',
@@ -273,6 +276,40 @@ async function commandInstall(positional, flags) {
   return lines.join('\n')
 }
 
+/** dsh-pack backups */
+async function commandBackups(flags) {
+  const home = resolveDshHome(typeof flags.home === 'string' ? flags.home : undefined)
+  const backups = (await listBackups(home)).filter((item) => item.plan)
+  if (backups.length === 0) return 'no install backup yet'
+  return backups
+    .map((item) => [
+      item.stamp.padEnd(20),
+      String(item.plan.pack).padEnd(16),
+      String(item.plan.version).padEnd(8),
+      (item.plan.actions ?? []).filter((action) => action.action !== 'skip').length + ' plugin(s)',
+    ].join(' '))
+    .join('\n')
+}
+
+/** dsh-pack restore <stamp|latest> */
+async function commandRestore(positional, flags) {
+  const profile = await pickProfile(flags)
+  const home = resolveDshHome(typeof flags.home === 'string' ? flags.home : undefined)
+  const wanted = positional[0]
+  if (!wanted) throw new Error('restore needs a backup stamp or "latest"')
+  const backups = (await listBackups(home)).filter((item) => item.plan)
+  const chosen = wanted === 'latest' ? backups[0] : backups.find((item) => item.stamp === wanted)
+  if (!chosen) throw new Error('no backup named ' + wanted)
+  const result = await restoreBackup({ backupDir: chosen.dir, profileDir: profile.dir, home })
+  return [
+    'restored  ' + chosen.stamp + '  (' + result.pack + ' ' + result.version + ')',
+    'put back  ' + (result.restored.join(', ') || '-'),
+    'removed   ' + (result.removed.join(', ') || '-'),
+    'configs   ' + (result.configs.join(', ') || '-'),
+    'restart DSH to pick the restored plugins up',
+  ].join('\n')
+}
+
 const { command, positional, flags } = parseArgs(process.argv.slice(2))
 
 try {
@@ -288,6 +325,10 @@ try {
     console.log(await commandVerify(positional, flags))
   } else if (command === 'install') {
     console.log(await commandInstall(positional, flags))
+  } else if (command === 'backups') {
+    console.log(await commandBackups(flags))
+  } else if (command === 'restore') {
+    console.log(await commandRestore(positional, flags))
   } else {
     console.error('unknown command: ' + command)
     console.error(USAGE)

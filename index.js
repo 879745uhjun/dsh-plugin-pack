@@ -20,6 +20,7 @@ import { basename, join } from 'node:path'
 import { diagnose, requiredDsh, summarize } from './lib/compat.mjs'
 import { installPack } from './lib/install.mjs'
 import { createPack, readPack, verifyPack } from './lib/pack.mjs'
+import { listBackups, restoreBackup } from './lib/restore.mjs'
 import { listProfiles, resolveDshHome, scanProfile } from './lib/scan.mjs'
 import { compareVersions } from './lib/semver.mjs'
 
@@ -37,6 +38,7 @@ const ROUTE_CREATE = '/plugin-pack/create'
 const ROUTE_INSPECT = '/plugin-pack/inspect'
 const ROUTE_INSTALL = '/plugin-pack/install'
 const ROUTE_LATEST = '/plugin-pack/latest'
+const ROUTE_RESTORE = '/plugin-pack/restore'
 
 /** Request-body ceiling for the browser routes. */
 const MAX_BODY_BYTES = 256 * 1024
@@ -245,6 +247,15 @@ export async function collectState(ctx) {
     diagnostics,
     summary: summarize(diagnostics),
     packs: await listPacks(home),
+    backups: (await listBackups(home))
+      .filter((item) => item.plan)
+      .slice(0, 6)
+      .map((item) => ({
+        stamp: item.stamp,
+        pack: item.plan.pack,
+        version: item.plan.version,
+        actions: (item.plan.actions ?? []).filter((action) => action.action !== 'skip').length,
+      })),
   }
 }
 
@@ -388,6 +399,34 @@ function createLatestHandler(ctx, log) {
   }
 }
 
+/** POST /plugin-pack/restore — undo one install from its backup directory. */
+function createRestoreHandler(ctx, log) {
+  return async function handleRestore(request, response) {
+    try {
+      if (!isAcceptableOrigin(request)) {
+        sendJson(response, 403, { ok: false, error: 'cross-origin request refused' })
+        return
+      }
+      if (request.method !== 'POST') {
+        sendJson(response, 405, { ok: false, error: 'method not allowed' })
+        return
+      }
+      const payload = JSON.parse(await readBody(request, MAX_BODY_BYTES))
+      const stamp = String(payload.stamp ?? '')
+      if (!/^[A-Za-z0-9-]+$/.test(stamp)) throw new Error('invalid backup stamp')
+      const state = await collectState(ctx)
+      const backups = (await listBackups(state.home)).filter((item) => item.plan)
+      const chosen = backups.find((item) => item.stamp === stamp)
+      if (!chosen) throw new Error('no backup named ' + stamp)
+      const result = await restoreBackup({ backupDir: chosen.dir, profileDir: state.profile.dir, home: state.home })
+      sendJson(response, 200, { ok: true, ...result })
+    } catch (error) {
+      log('restore failed', error)
+      sendJson(response, 500, { ok: false, error: error.message })
+    }
+  }
+}
+
 /** POST /plugin-pack/install */
 export function createInstallHandler(ctx, log) {
   return async function handleInstall(request, response) {
@@ -456,6 +495,7 @@ export function apply(ctx) {
         scope.webServer.register({ kind: 'exact', path: ROUTE_INSPECT, handler: createInspectHandler(log) }),
         scope.webServer.register({ kind: 'exact', path: ROUTE_INSTALL, handler: createInstallHandler(ctx, log) }),
         scope.webServer.register({ kind: 'exact', path: ROUTE_LATEST, handler: createLatestHandler(ctx, log) }),
+        scope.webServer.register({ kind: 'exact', path: ROUTE_RESTORE, handler: createRestoreHandler(ctx, log) }),
       ]
       return () => {
         for (const remove of off) remove()

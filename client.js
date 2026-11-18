@@ -17,6 +17,7 @@ window.__ModuleLoader__.load({
     const CREATE_URL = '/plugin-pack/create'
     const INSTALL_URL = '/plugin-pack/install'
     const LATEST_URL = '/plugin-pack/latest'
+    const RESTORE_URL = '/plugin-pack/restore'
 
     const CSS = [
       '.pp{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary,#e8e8ec);',
@@ -241,7 +242,7 @@ window.__ModuleLoader__.load({
     }
 
     function importTab(props) {
-      const { state, onPreflight, onInstall, busy, plan, choices, setChoices } = props
+      const { state, onPreflight, onInstall, onRestore, busy, plan, choices, setChoices } = props
       const list = state.packs ?? []
       if (list.length === 0) return h('div', { className: 'pp-empty' }, '还没有生成过插件包；到「打包台」生成一个')
 
@@ -290,12 +291,35 @@ window.__ModuleLoader__.load({
         ? h('div', { key: 'lock', className: 'pp-note', style: { marginTop: '8px' } },
             plan.lock.ok ? '✔ pnpm-lock.yaml 已同步' : '⚠ lockfile 未同步：' + plan.lock.error)
         : null
+      const restoreNote = plan && plan.restored
+        ? h('div', { key: 'restored', className: 'pp-note', style: { marginBottom: '6px', color: '#3ecf8e' } },
+            '已回滚：放回 ' + (plan.restored.join(', ') || '-') + '；移除 ' + (plan.removed.join(', ') || '-'))
+        : null
       const planContent = planError
         ? [planError]
-        : plan && (plan.conflicts ?? []).length
+        : plan && plan.restored
+          ? [restoreNote]
+          : plan && (plan.conflicts ?? []).length
           ? [h('div', { key: 'conflicts', className: 'pp-note', style: { color: '#eeb244', marginBottom: '6px' } },
               '冲突：' + plan.conflicts.map((item) => item.location.replace('slot:', '')).join('、')), ...planRows]
           : planRows
+
+      const backupRows = (state.backups ?? []).length
+        ? state.backups.map((backup) => h('div', { key: backup.stamp, className: 'pp-kv' },
+            h('span', { className: 'pp-mono', title: backup.pack + ' ' + backup.version }, backup.stamp),
+            h('span', null,
+              h('b', null, backup.actions + ' 项'),
+              h('button', {
+                className: 'pp-btn',
+                style: { height: '22px', marginLeft: '6px', fontSize: '10.5px' },
+                disabled: busy,
+                onClick: () => onRestore(backup.stamp),
+              }, '回滚'))))
+        : [h('div', { key: 'none', className: 'pp-note' }, '还没有安装备份')]
+
+      const backupCard = h('div', { className: 'pp-card' },
+        h('div', { className: 'pp-card-h' }, '安装备份', h('span', { className: 'pp-badge' }, String((state.backups ?? []).length))),
+        h('div', { className: 'pp-card-b', style: { maxHeight: '170px', overflow: 'auto' } }, backupRows))
 
       const planCard = h('div', { className: 'pp-card', style: { flex: 1 } },
         h('div', { className: 'pp-card-h' }, '预检结果'),
@@ -308,7 +332,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'pp-card', style: { flex: 1 } },
             h('div', { className: 'pp-card-h' }, '已生成的包', h('span', { className: 'pp-badge' }, String(list.length))),
             h('div', { className: 'pp-scroll' }, table))),
-        h('div', { className: 'pp-aside' }, planCard))
+        h('div', { className: 'pp-aside' }, planCard, backupCard))
     }
 
     function PluginPackPage() {
@@ -416,6 +440,25 @@ window.__ModuleLoader__.load({
         }
       }, [post, load, choices])
 
+      const restore = useCallback(async (stamp) => {
+        setBusy(true)
+        try {
+          const response = await fetch(RESTORE_URL, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ stamp }),
+          })
+          const payload = await response.json()
+          if (!payload.ok) throw new Error(payload.error ?? 'restore failed')
+          setPlan({ actions: [], restored: payload.restored ?? [], removed: payload.removed ?? [] })
+          await load()
+        } catch (cause) {
+          setPlan({ actions: [], error: cause.message })
+        } finally {
+          setBusy(false)
+        }
+      }, [load])
+
       const checkLatest = useCallback(async () => {
         setBusy(true)
         setLatestNote('正在读取 GitHub tag…')
@@ -461,7 +504,7 @@ window.__ModuleLoader__.load({
           })
         : tab === 'compat'
           ? compatTab(state)
-          : importTab({ state, onPreflight: preflight, onInstall: install, busy, plan, choices, setChoices })
+          : importTab({ state, onPreflight: preflight, onInstall: install, onRestore: restore, busy, plan, choices, setChoices })
 
       return h('div', { className: 'pp' }, head, body)
     }
