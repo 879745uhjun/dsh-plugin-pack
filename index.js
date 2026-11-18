@@ -1,0 +1,329 @@
+/**
+ * dsh-plugin-pack — Host half.
+ *
+ * Serves the plugin-pack page: scans the active profile, runs the compatibility
+ * engine, builds .dshpack archives under <home>/plugin-packs, and installs them
+ * after a preflight.
+ *
+ *  - GET  /plugin-pack/state    profile + plugins + diagnostics + built packs
+ *  - POST /plugin-pack/create   build one pack from a selection
+ *  - POST /plugin-pack/inspect  read a built pack back
+ *  - POST /plugin-pack/install  preflight or install one built pack
+ *
+ * @module dsh-plugin-pack
+ */
+import { readdir, readFile, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { basename, join } from 'node:path'
+import { diagnose, requiredDsh, summarize } from './lib/compat.mjs'
+import { installPack } from './lib/install.mjs'
+import { createPack, readPack, verifyPack } from './lib/pack.mjs'
+import { listProfiles, resolveDshHome, scanProfile } from './lib/scan.mjs'
+
+/** Cordis plugin name. */
+export const name = 'dsh-plugin-pack'
+
+/** Required Host services; the web route additionally waits for webServer. */
+export const inject = ['tools']
+
+/** Same-origin routes used by the browser half. */
+const ROUTE_STATE = '/plugin-pack/state'
+const ROUTE_CREATE = '/plugin-pack/create'
+const ROUTE_INSPECT = '/plugin-pack/inspect'
+const ROUTE_INSTALL = '/plugin-pack/install'
+
+/** Request-body ceiling for the browser routes. */
+const MAX_BODY_BYTES = 256 * 1024
+
+/** Directory (under the DSH home) that holds built packs. */
+const PACK_DIR = 'plugin-packs'
+
+/** One warning sink that reports each distinct failure once. */
+function createLogger() {
+  const seen = new Set()
+  return (message, error) => {
+    const key = message + ': ' + (error?.code ?? error?.message ?? String(error ?? ''))
+    if (seen.has(key)) return
+    seen.add(key)
+    console.warn('[plugin-pack] ' + message, error ?? '')
+  }
+}
+
+/** Answer one JSON response with no-store caching. */
+function sendJson(response, status, value) {
+  const body = JSON.stringify(value)
+  response.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(body),
+    'cache-control': 'no-store',
+  })
+  response.end(body)
+}
+
+/** Read a bounded UTF-8 request body. */
+function readBody(request, limit) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    let size = 0
+    request.on('data', (chunk) => {
+      size += chunk.length
+      if (size > limit) {
+        reject(new Error('request body is too large'))
+        request.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    request.on('error', reject)
+  })
+}
+
+/** Refuse a cross-site POST; same-origin callers and plain clients pass. */
+function isAcceptableOrigin(request) {
+  const origin = request.headers.origin
+  if (origin === undefined) return true
+  if (origin === 'null') return false
+  try {
+    return new URL(origin).host === request.headers.host
+  } catch {
+    return false
+  }
+}
+
+/** Resolve the DSH home for this Host context. */
+function resolveHome(ctx) {
+  try {
+    const homePath = ctx.get('dshHomePath')
+    if (typeof homePath === 'string') return homePath
+    if (typeof homePath === 'function') {
+      const value = homePath('plugin-pack')
+      if (typeof value === 'string' && value.length > 0) return join(value, '..')
+    }
+  } catch {
+    // fall through to the default below
+  }
+  return resolveDshHome()
+}
+
+/** Every built pack under the DSH home, newest first. */
+async function listPacks(home) {
+  const dir = join(home, PACK_DIR)
+  let entries
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  const packs = []
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.dshpack')) continue
+    const file = join(dir, entry.name)
+    try {
+      const info = await stat(file)
+      const raw = await readFile(file)
+      const pack = readPack(raw)
+      packs.push({
+        file,
+        name: pack.manifest.name,
+        version: pack.manifest.version,
+        plugins: pack.manifest.plugins.length,
+        bytes: info.size,
+        mtime: info.mtimeMs,
+        verified: verifyPack(pack).ok,
+      })
+    } catch (error) {
+      packs.push({ file, name: basename(file), version: '?', plugins: 0, bytes: 0, mtime: 0, verified: false, error: error.message })
+    }
+  }
+  packs.sort((a, b) => b.mtime - a.mtime)
+  return packs
+}
+
+/** Scan the active profile and describe everything the page shows. */
+export async function collectState(ctx) {
+  const home = resolveHome(ctx)
+  const profiles = await listProfiles(home)
+  if (profiles.length === 0) throw new Error('no DSH profile found under ' + join(home, 'profiles'))
+  const profile = profiles.find((item) => item.name === 'desktop') ?? profiles[0]
+  const scan = await scanProfile({ profileDir: profile.dir, home })
+  const plugins = scan.plugins
+    .filter((plugin) => plugin.kind !== 'builtin')
+    .map((plugin) => ({
+      name: plugin.name,
+      version: plugin.version ?? null,
+      kind: plugin.kind,
+      size: plugin.size ?? 0,
+      enginesDsh: plugin.enginesDsh ?? null,
+      dependencies: plugin.dependencies ?? {},
+      slots: plugin.slots ?? [],
+      takeoverSlots: plugin.takeoverSlots ?? [],
+      repo: plugin.repo ?? null,
+      config: plugin.config ?? null,
+    }))
+  const targetDsh = requiredDsh(plugins)
+  const diagnostics = diagnose({ plugins, targetDsh })
+  return {
+    home,
+    profile: { dir: profile.dir, name: profile.name },
+    targetDsh,
+    plugins,
+    diagnostics,
+    summary: summarize(diagnostics),
+    packs: await listPacks(home),
+  }
+}
+
+/** GET /plugin-pack/state */
+function createStateHandler(ctx, log) {
+  return async function handleState(request, response) {
+    try {
+      if (request.method !== 'GET') {
+        response.writeHead(405, { 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({ ok: false, error: 'method not allowed' }))
+        return
+      }
+      sendJson(response, 200, { ok: true, ...(await collectState(ctx)) })
+    } catch (error) {
+      log('state failed', error)
+      sendJson(response, 500, { ok: false, error: error.message })
+    }
+  }
+}
+
+/** POST /plugin-pack/create */
+function createBuildHandler(ctx, log) {
+  return async function handleCreate(request, response) {
+    try {
+      if (!isAcceptableOrigin(request)) {
+        sendJson(response, 403, { ok: false, error: 'cross-origin request refused' })
+        return
+      }
+      if (request.method !== 'POST') {
+        sendJson(response, 405, { ok: false, error: 'method not allowed' })
+        return
+      }
+      const payload = JSON.parse(await readBody(request, MAX_BODY_BYTES))
+      const state = await collectState(ctx)
+      const select = Array.isArray(payload.select) && payload.select.length > 0 ? payload.select : null
+      const version = typeof payload.version === 'string' && payload.version ? payload.version : '1.0.0'
+      const packName = typeof payload.name === 'string' && payload.name ? payload.name : 'dsh-toolkit'
+      const out = join(state.home, PACK_DIR, packName + '-' + version + '.dshpack')
+      const result = await createPack({
+        profileDir: state.profile.dir,
+        home: state.home,
+        name: packName,
+        version,
+        select,
+        targetDsh: state.targetDsh,
+        author: payload.author ?? null,
+        out,
+      })
+      const diagnostics = diagnose({
+        plugins: result.manifest.plugins.map((entry) => ({
+          ...entry,
+          enginesDsh: entry.engines?.dsh ?? null,
+          takeoverSlots: entry.takeoverSlots ?? [],
+        })),
+        targetDsh: result.manifest.engines?.dsh ?? null,
+      })
+      sendJson(response, 200, {
+        ok: true,
+        file: out,
+        bytes: result.bytes,
+        files: result.files,
+        plugins: result.manifest.plugins.length,
+        diagnostics,
+        summary: summarize(diagnostics),
+      })
+    } catch (error) {
+      log('create failed', error)
+      sendJson(response, 500, { ok: false, error: error.message })
+    }
+  }
+}
+
+/** POST /plugin-pack/inspect */
+function createInspectHandler(log) {
+  return async function handleInspect(request, response) {
+    try {
+      if (request.method !== 'POST') {
+        sendJson(response, 405, { ok: false, error: 'method not allowed' })
+        return
+      }
+      const payload = JSON.parse(await readBody(request, MAX_BODY_BYTES))
+      if (typeof payload.file !== 'string') throw new Error('file is required')
+      const pack = readPack(await readFile(payload.file))
+      const diagnostics = diagnose({
+        plugins: pack.manifest.plugins.map((entry) => ({
+          ...entry,
+          enginesDsh: entry.engines?.dsh ?? null,
+          takeoverSlots: entry.takeoverSlots ?? [],
+        })),
+        targetDsh: pack.manifest.engines?.dsh ?? null,
+      })
+      sendJson(response, 200, { ok: true, manifest: pack.manifest, verified: verifyPack(pack), diagnostics, summary: summarize(diagnostics) })
+    } catch (error) {
+      log('inspect failed', error)
+      sendJson(response, 500, { ok: false, error: error.message })
+    }
+  }
+}
+
+/** POST /plugin-pack/install */
+function createInstallHandler(ctx, log) {
+  return async function handleInstall(request, response) {
+    try {
+      if (!isAcceptableOrigin(request)) {
+        sendJson(response, 403, { ok: false, error: 'cross-origin request refused' })
+        return
+      }
+      if (request.method !== 'POST') {
+        sendJson(response, 405, { ok: false, error: 'method not allowed' })
+        return
+      }
+      const payload = JSON.parse(await readBody(request, MAX_BODY_BYTES))
+      if (typeof payload.file !== 'string') throw new Error('file is required')
+      const state = await collectState(ctx)
+      const result = await installPack({
+        packFile: payload.file,
+        profileDir: state.profile.dir,
+        home: state.home,
+        skip: Array.isArray(payload.skip) ? payload.skip : [],
+        overwrite: Array.isArray(payload.overwrite) ? payload.overwrite : [],
+        dryRun: payload.dryRun !== false,
+      })
+      sendJson(response, 200, {
+        ok: true,
+        dryRun: payload.dryRun !== false,
+        actions: result.actions,
+        pending: result.pending.length,
+        backupDir: result.backupDir,
+      })
+    } catch (error) {
+      log('install failed', error)
+      sendJson(response, 500, { ok: false, error: error.message })
+    }
+  }
+}
+
+/**
+ * Register the browser routes.
+ * @param ctx - Host context carrying the web server.
+ */
+export function apply(ctx) {
+  const log = createLogger()
+  ctx.inject(['webServer'], (scope) => {
+    scope.effect(() => {
+      const off = [
+        scope.webServer.register({ kind: 'exact', path: ROUTE_STATE, handler: createStateHandler(ctx, log) }),
+        scope.webServer.register({ kind: 'exact', path: ROUTE_CREATE, handler: createBuildHandler(ctx, log) }),
+        scope.webServer.register({ kind: 'exact', path: ROUTE_INSPECT, handler: createInspectHandler(log) }),
+        scope.webServer.register({ kind: 'exact', path: ROUTE_INSTALL, handler: createInstallHandler(ctx, log) }),
+      ]
+      return () => {
+        for (const remove of off) remove()
+      }
+    }, 'plugin-pack: browser routes')
+  })
+}

@@ -1,33 +1,31 @@
 # dsh-plugin-pack · 进度与断点
 
-> 断点续做的唯一依据。每次停下前更新；下次先读本文件 + git log。
+> 断点续做的唯一依据。停下前更新；下次先读本文件 + git log。
 
-## 状态：M6 完成（命令行闭环可用了）
+## 状态：M7/M8 代码完成，已 link 进 desktop profile，等重启验证
 
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
-| M0-M2 | zip / 扫描 / 兼容性引擎 | 完成 |
-| M3-M4 | manifest + checksums + create/inspect/verify | 完成 |
-| M5 | 安装器（预检/备份/落盘/bundles/patch/回滚） | 完成 |
-| M6 | CLI install + 端到端测试 | 完成 |
-| M7 | client 页面三 tab + 深浅色 | 待做 |
-| M8 | host 路由 + 工具 + 联调 | 待做 |
+| M0-M6 | 扫描 / 兼容性 / 打包 / CLI / 安装器 | 完成 |
+| M7 | client 三 tab 页面（打包台 / 兼容性 / 导入） | 代码完成，未在真实 GUI 里看过 |
+| M8 | host 路由（state/create/inspect/install） | 代码完成，collectState 冒烟通过（15 插件 / 1 诊断） |
+| M9 | 重启 DSH 验证页面、截图、修样式 | 待做 |
 
-## 真机产物
+## 已接入
 
-- out/dsh-toolkit-1.0.0.dshpack：12 插件 / 198 文件 / 1.5 MB，verify OK
-- 诊断：0 blocker / 1 warn
-  - C-01 WARN slot.unique slot:sidebar.footer.action → transfer@1.0.2 + sidebar-pin@0.1.2
-    （footer 只有一个按钮位，两个插件都往里塞）
-- install 在空 profile 上端到端通过（e2e 测试），对真实 profile 只跑过 dry-run（全部 skip）
+- link 到 desktop profile：node_modules/dsh-plugin-pack → 仓库（junction）
+- package.json：dependencies "link:D:/Deepseek work/workplace/dsh-plugin-pack" + bundles 追加
+- cordis.patch.yml：第 95 行追加 - id: dsh-plugin-pack
+- 备份：~/.dsh/backups/link-2026-11-18-00-28-44/
+- 包目录：~/.dsh/plugin-packs/dsh-toolkit-1.0.0.dshpack（页面「导入」tab 读这里）
 
 ## 下一步
 
-1. M7：client.js 三 tab（打包台 / 兼容性 / 导入），照 ../plugin-pack-mockup/v2/
-2. M8：host 路由 /plugin-pack/{scan,create,inspect,install,verify} + 两个工具
-3. 补强：locale.key / runtime.platform 两条规则；真实 profile 上跑一次 install --yes（先备份）
+1. 重启 DSH → 侧边栏出现「插件包」→ 截图核对三 tab
+2. 修样式/高度问题（页面用 height:100%，若容器无高度会塌）
+3. 补：版本对齐（GitHub tag）按钮、locale.key 规则、agent 工具
 
-## 已知问题
+## 回滚
 
-- takeover 现在按 slot 精确识别（register({...takeover:true})），不再整文件命中
-- 安装后是否需要重启 DSH 才生效，未验证
+node tools/link-self.mjs --unlink
+（或从 ~/.dsh/backups/link-... 还原 package.json 和 cordis.patch.yml）
