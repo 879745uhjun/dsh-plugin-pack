@@ -432,6 +432,7 @@ export function createInstallHandler(ctx, log) {
         pending: result.pending.length,
         backupDir: result.backupDir,
         conflicts,
+        lock: result.lock ?? null,
       })
     } catch (error) {
       log('install failed', error)

@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { installPack, planInstall } from '../lib/install.mjs'
+import { installPack, planInstall, syncLockfile } from '../lib/install.mjs'
 import { createPack, readPack } from '../lib/pack.mjs'
 
 /** A profile with one installed plugin, plus a pack built from a richer source profile. */
@@ -87,6 +87,37 @@ test('an older pack never downgrades the profile silently', async () => {
   assert.ok(forced.pending.some((action) => action.name === 'dsh-alpha'))
   const downgraded = JSON.parse(await readFile(file, 'utf8'))
   assert.equal(downgraded.version, '1.0.0', 'an explicit overwrite does write the older version')
+})
+
+test('syncLockfile runs pnpm with lockfile-only flags', async () => {
+  const calls = []
+  const runner = async (command, args, options) => {
+    calls.push({ command, args, cwd: options.cwd })
+  }
+  const result = await syncLockfile('/tmp/profile', {
+    runner,
+    candidates: [{ command: 'node', args: ['pnpm.cjs'] }],
+  })
+  assert.equal(result.ok, true)
+  assert.equal(calls.length, 1)
+  assert.ok(calls[0].args.includes('--lockfile-only'))
+  assert.ok(calls[0].args.includes('install'))
+  assert.equal(calls[0].cwd, '/tmp/profile')
+})
+
+test('syncLockfile reports a missing pnpm instead of throwing', async () => {
+  const result = await syncLockfile('/tmp/profile', { candidates: [] })
+  assert.equal(result.ok, false)
+  assert.match(result.error, /pnpm/)
+})
+
+test('syncLockfile surfaces the runner error', async () => {
+  const runner = async () => {
+    throw new Error('registry unreachable')
+  }
+  const result = await syncLockfile('/tmp/profile', { runner, candidates: [{ command: 'node', args: ['pnpm.cjs'] }] })
+  assert.equal(result.ok, false)
+  assert.match(result.error, /registry unreachable/)
 })
 
 test('a second install is a no-op', async () => {

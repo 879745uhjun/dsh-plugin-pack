@@ -280,6 +280,10 @@ window.__ModuleLoader__.load({
           })
         : [h('div', { key: 'hint', className: 'pp-note' }, '点「预检」看每个插件的动作，再决定是否安装')]
       const planError = plan && plan.error ? h('div', { key: 'error', className: 'pp-err' }, '预检失败：' + plan.error) : null
+      const lockNote = plan && plan.lock
+        ? h('div', { key: 'lock', className: 'pp-note', style: { marginTop: '8px' } },
+            plan.lock.ok ? '✔ pnpm-lock.yaml 已同步' : '⚠ lockfile 未同步：' + plan.lock.error)
+        : null
       const planContent = planError
         ? [planError]
         : plan && (plan.conflicts ?? []).length
@@ -289,7 +293,8 @@ window.__ModuleLoader__.load({
 
       const planCard = h('div', { className: 'pp-card', style: { flex: 1 } },
         h('div', { className: 'pp-card-h' }, '预检结果'),
-        h('div', { className: 'pp-card-b pp-scroll' }, planContent))
+        h('div', { className: 'pp-card-b pp-scroll' }, planContent),
+        lockNote)
 
       return h('div', { className: 'pp-body' },
         h('div', { className: 'pp-main' },
