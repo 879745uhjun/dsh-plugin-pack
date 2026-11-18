@@ -107,7 +107,7 @@ function resolveHome(ctx) {
 }
 
 /** Every built pack under the DSH home, newest first. */
-async function listPacks(home) {
+export async function listPacks(home) {
   const dir = join(home, PACK_DIR)
   let entries
   try {
@@ -121,8 +121,10 @@ async function listPacks(home) {
     const file = join(dir, entry.name)
     try {
       const info = await stat(file)
-      const raw = await readFile(file)
-      const pack = readPack(raw)
+      // readPack takes a path and reads the archive itself; passing the Buffer made
+      // readFile(buffer) reject, and the skipped await turned that into an
+      // unhandled rejection that killed the host.
+      const pack = await readPack(file)
       packs.push({
         file,
         name: pack.manifest.name,
@@ -133,7 +135,18 @@ async function listPacks(home) {
         verified: verifyPack(pack).ok,
       })
     } catch (error) {
-      packs.push({ file, name: basename(file), version: '?', plugins: 0, bytes: 0, mtime: 0, verified: false, error: error.message })
+      // One unreadable pack must never break the page: keep the row, carry the
+      // file name and the errno code, and let the user see which file is bad.
+      packs.push({
+        file,
+        name: basename(file),
+        version: '?',
+        plugins: 0,
+        bytes: 0,
+        mtime: 0,
+        verified: false,
+        error: (error.code ? error.code + ': ' : '') + error.message,
+      })
     }
   }
   packs.sort((a, b) => b.mtime - a.mtime)
