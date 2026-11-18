@@ -71,6 +71,35 @@ test('diagnose reports a lagging version as info', () => {
   assert.match(diagnostics[0].expected, /v1\.2\.0/)
 })
 
+test('diagnose reports two plugins sharing a locale namespace', () => {
+  const diagnostics = diagnose({
+    targetDsh: '0.2.4',
+    plugins: [
+      plugin({ name: 'dsh-a', namespaces: ['shared'] }),
+      plugin({ name: 'dsh-b', namespaces: ['shared'] }),
+      plugin({ name: 'dsh-c', namespaces: ['own'] }),
+    ],
+  })
+  const finding = diagnostics.find((item) => item.rule === 'locale.key')
+  assert.equal(finding.level, 'WARN')
+  assert.equal(finding.location, 'locale:shared')
+  assert.match(finding.actual, /dsh-a@1\.0\.0 \+ dsh-b@1\.0\.0/)
+  assert.deepEqual(finding.plugins, ['dsh-a', 'dsh-b'])
+})
+
+test('diagnose warns when the pack was built on another platform', () => {
+  const diagnostics = diagnose({
+    targetDsh: '0.2.4',
+    plugins: [plugin({ name: 'dsh-a' })],
+    platform: 'win32-x64',
+    build: { platform: 'linux-x64', node: 'v22.0.0' },
+  })
+  const finding = diagnostics.find((item) => item.rule === 'runtime.platform')
+  assert.equal(finding.level, 'WARN')
+  assert.match(finding.actual, /linux-x64/)
+  assert.match(finding.expected, /win32-x64/)
+})
+
 test('summarize counts levels and keeps generation possible', () => {
   const diagnostics = diagnose({
     targetDsh: '0.2.4',

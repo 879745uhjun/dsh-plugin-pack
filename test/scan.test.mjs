@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { configFileFor, describePlugin, extractSlots, repoSlug, scanProfile } from '../lib/scan.mjs'
+import { configFileFor, describePlugin, extractNamespaces, extractSlots, repoSlug, scanProfile } from '../lib/scan.mjs'
 
 /** Build a throwaway DSH home with one profile and two plugins. */
 async function makeHome() {
@@ -61,6 +61,20 @@ test('repoSlug normalises git+https urls', () => {
 test('configFileFor matches the plugin short name', () => {
   assert.equal(configFileFor('dsh-session-stars', ['settings.json', 'session-stars.json']), 'session-stars.json')
   assert.equal(configFileFor('dsh-token-usage', ['token-usage-cache.json']), 'token-usage-cache.json')
+})
+
+test('extractNamespaces reads registered dictionaries', () => {
+  const source = "const NS = 'demo'\nctx.locale.register(NS, LOCALES)\nctx.locale.register('extra', {})\n"
+  assert.deepEqual(extractNamespaces(source), ['demo', 'extra'])
+  assert.deepEqual(extractNamespaces('no locale here'), [])
+})
+
+test('describePlugin collects locale keys per file', async () => {
+  const { pluginDir } = await makeHome()
+  await mkdir(join(pluginDir, 'locale'), { recursive: true })
+  await writeFile(join(pluginDir, 'locale', 'zh.json'), JSON.stringify({ approval: { cancel: '取消', ok: '好的' } }))
+  const plugin = await describePlugin(pluginDir, {})
+  assert.deepEqual(plugin.locales['zh.json'], ['approval.cancel', 'approval.ok'])
 })
 
 test('scanProfile reads bundles, versions, slots and config', async () => {

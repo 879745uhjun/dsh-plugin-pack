@@ -210,6 +210,8 @@ function toRecord(entry) {
     dependencies: entry.dependencies ?? {},
     slots: entry.slots ?? [],
     takeoverSlots: entry.takeoverSlots ?? [],
+    locales: entry.locales ?? {},
+    namespaces: entry.namespaces ?? [],
     repo: entry.repo ?? null,
   }
 }
@@ -348,6 +350,8 @@ function createInspectHandler(log) {
           takeoverSlots: entry.takeoverSlots ?? [],
         })),
         targetDsh: pack.manifest.engines?.dsh ?? null,
+        platform: process.platform + '-' + process.arch,
+        build: pack.manifest.build,
       })
       sendJson(response, 200, { ok: true, manifest: pack.manifest, verified: verifyPack(pack), diagnostics, summary: summarize(diagnostics) })
     } catch (error) {
@@ -452,7 +456,12 @@ export function createInstallHandler(ctx, log) {
         ...state.plugins.map(toRecord),
         ...incoming.manifest.plugins.map(toRecord).filter((entry) => !state.plugins.some((plugin) => plugin.name === entry.name)),
       ]
-      const conflicts = diagnose({ plugins: merged, targetDsh: state.targetDsh })
+      const conflicts = diagnose({
+        plugins: merged,
+        targetDsh: state.targetDsh,
+        platform: process.platform + '-' + process.arch,
+        build: incoming.manifest.build,
+      })
         .filter((item) => item.rule === 'slot.unique')
         .filter((item) => (item.plugins ?? []).some((name) => packNames.has(name)) && (item.plugins ?? []).some((name) => !packNames.has(name)))
         .map((item) => ({ code: item.code, level: item.level, rule: item.rule, location: item.location, expected: item.expected, actual: item.actual, plugins: item.plugins }))
