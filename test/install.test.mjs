@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { installPack, planInstall, syncLockfile } from '../lib/install.mjs'
+import { zipRead, zipWrite } from '../lib/zip.mjs'
 import { createPack, readPack } from '../lib/pack.mjs'
 
 /** A profile with one installed plugin, plus a pack built from a richer source profile. */
@@ -118,6 +119,39 @@ test('syncLockfile surfaces the runner error', async () => {
   const result = await syncLockfile('/tmp/profile', { runner, candidates: [{ command: 'node', args: ['pnpm.cjs'] }] })
   assert.equal(result.ok, false)
   assert.match(result.error, /registry unreachable/)
+})
+
+test('a pack whose checksums no longer match is refused', async () => {
+  const { home, target, packFile } = await makeWorld()
+  const files = zipRead(await readFile(packFile))
+  files.set('plugins/dsh-alpha/package.json', Buffer.from(JSON.stringify({ name: 'dsh-alpha', version: '9.9.9' })))
+  const tampered = join(packFile, '..', 'tampered.dshpack')
+  await writeFile(tampered, zipWrite([...files].map(([name, data]) => ({ name, data }))))
+
+  await assert.rejects(
+    () => installPack({ packFile: tampered, profileDir: target, home }),
+    /校验失败/,
+  )
+  assert.ok(!existsSync(join(target, 'plugins', 'dsh-beta')), 'nothing is written on a failed check')
+
+  const forced = await installPack({ packFile: tampered, profileDir: target, home, allowUnverified: true })
+  assert.equal(forced.verification.ok, false)
+  assert.ok(forced.pending.length > 0, 'an explicit override still installs')
+})
+
+test('an overwritten plugin config is backed up first', async () => {
+  const { home, source, target, packFile } = await makeWorld()
+  // give the source plugin a config the pack will carry
+  await writeFile(join(home, 'alpha.json'), JSON.stringify({ v: 1 }))
+  const packed = join(packFile, '..', 'with-config.dshpack')
+  await createPack({ profileDir: source, home, name: 'cfg', version: '1.0.0', out: packed })
+  // the target already has its own copy of that config
+  await writeFile(join(home, 'alpha.json'), JSON.stringify({ v: 'local' }))
+
+  const result = await installPack({ packFile: packed, profileDir: target, home })
+  const saved = await readFile(join(result.backupDir, 'config', 'alpha.json'), 'utf8')
+  assert.equal(JSON.parse(saved).v, 'local', 'the previous config is preserved in the backup')
+  assert.equal(JSON.parse(await readFile(join(home, 'alpha.json'), 'utf8')).v, 1, 'the pack config is applied')
 })
 
 test('a second install is a no-op', async () => {

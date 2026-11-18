@@ -269,6 +269,7 @@ async function commandInstall(positional, flags) {
   }
   lines.push('', result.pending.length + ' plugin(s) to write' + (flags.yes ? '' : ' · dry run, pass --yes to install'))
   if (result.lock) lines.push(result.lock.ok ? 'lock    pnpm-lock.yaml refreshed' : 'lock    not refreshed: ' + result.lock.error)
+  if (result.verification) lines.push('verify  ' + (result.verification.ok ? 'checksums OK' : 'MISMATCH (override used)'))
   return lines.join('\n')
 }
 

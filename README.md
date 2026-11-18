@@ -34,3 +34,10 @@ Received <Buffer 50 4b 03 04 ...>
 - `listPacks` 每个包独立 try/catch，错误带 errno code 和文件名，坏包只显示一行错误，页面仍 200；
 - **任何返回 Promise 的调用都必须 await（或显式 void + catch）**，宿主进程里一个 unhandled rejection 就够退出；
 - 回归测试 4 条：真实包 / 坏文件 / 空目录 / Buffer 形态。
+
+## 安全边界
+
+- **安装前校验**：`verifyPack` 对整包逐文件重算 SHA-256；不一致直接拒绝安装（除非显式 `allowUnverified`）。
+- **配置备份**：包内 `config/*.json` 覆盖已有文件前，先复制到 `.dsh/backups/<时间戳>/config/`；安装失败回滚时一并还原。
+- **降级保护**：包版本低于本机时标为「降级」，默认不写，需显式「覆盖」。
+- **锁同步**：写入后调用 `pnpm install --lockfile-only`，失败只警告。

@@ -280,6 +280,12 @@ window.__ModuleLoader__.load({
           })
         : [h('div', { key: 'hint', className: 'pp-note' }, '点「预检」看每个插件的动作，再决定是否安装')]
       const planError = plan && plan.error ? h('div', { key: 'error', className: 'pp-err' }, '预检失败：' + plan.error) : null
+      const verifyNote = plan && plan.verification
+        ? h('div', { key: 'verify', className: 'pp-note', style: { marginTop: '6px' } },
+            plan.verification.ok
+              ? '✔ 校验通过（' + plan.verification.checked + ' 个文件）'
+              : '⚠ 校验不一致，已拒绝写入：' + plan.verification.mismatch.slice(0, 3).join('；'))
+        : null
       const lockNote = plan && plan.lock
         ? h('div', { key: 'lock', className: 'pp-note', style: { marginTop: '8px' } },
             plan.lock.ok ? '✔ pnpm-lock.yaml 已同步' : '⚠ lockfile 未同步：' + plan.lock.error)
@@ -294,6 +300,7 @@ window.__ModuleLoader__.load({
       const planCard = h('div', { className: 'pp-card', style: { flex: 1 } },
         h('div', { className: 'pp-card-h' }, '预检结果'),
         h('div', { className: 'pp-card-b pp-scroll' }, planContent),
+        verifyNote,
         lockNote)
 
       return h('div', { className: 'pp-body' },

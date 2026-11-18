@@ -433,6 +433,7 @@ export function createInstallHandler(ctx, log) {
         backupDir: result.backupDir,
         conflicts,
         lock: result.lock ?? null,
+        verification: result.verification ?? null,
       })
     } catch (error) {
       log('install failed', error)
