@@ -6,7 +6,9 @@
  * locale service (en/zh); colours are DSH theme tokens.
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-plugin-pack',
+  // The module id must match the package name: the loader keys registration and
+  // locale scoping off it, so a scoped package needs its scoped id.
+  id: '@879745uhjun/dsh-plugin-pack',
   factory(require) {
     const React = require('react')
     const h = React.createElement
@@ -690,6 +692,15 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
+        // A failing locale service must never cost the user the sidebar entry:
+        // fall back to the built-in dictionary and keep registering the page.
+        let t = (key) => (STRINGS.zh[key] ?? key)
+        try {
+          t = ctx.locale.bind(NS)
+        } catch {
+          /* keep the local fallback */
+        }
+
         ctx.effect(() => {
           const style = document.createElement('style')
           style.setAttribute('data-plugin-css', 'dsh-plugin-pack/PluginPack.css')
@@ -698,9 +709,14 @@ window.__ModuleLoader__.load({
           return () => style.remove()
         }, 'plugin-pack: styles')
 
-        ctx.effect(() => ctx.locale.register(NS, STRINGS), 'plugin-pack: dictionaries')
+        ctx.effect(() => {
+          try {
+            return ctx.locale.register(NS, STRINGS)
+          } catch {
+            return undefined
+          }
+        }, 'plugin-pack: dictionaries')
 
-        const t = ctx.locale.bind(NS)
         const Page = (props) => h(PluginPackPage, Object.assign({}, props, { t }))
 
         ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID, locale: NS }, Page))
