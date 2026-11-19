@@ -2,25 +2,29 @@
 
 > 断点续做的唯一依据。停下前更新；下次先读本文件 + git log。
 
-## 状态：1.0.0 已就绪，等网络恢复后推送
+## 状态：1.0.0 已发布并在真机验证通过
+
+- 仓库：https://github.com/879745uhjun/dsh-plugin-pack
+- 发布：https://github.com/879745uhjun/dsh-plugin-pack/releases/tag/v1.0.0
+- 包名：`@879745uhjun/dsh-plugin-pack`（npm 上 `dsh-plugin-pack` 被他人占用）
+- 真机：重启后 `GET /plugin-pack/state` → 200（scoped bundle 正常加载）
 
 | 项 | 状态 |
 |---|---|
-| 改名 `@879745uhjun/dsh-plugin-pack`（npm 上 dsh-plugin-pack 已被他人占用） | 完成 |
-| 版本 1.0.0 + publishConfig.access=public | 完成 |
-| profile 迁移（依赖键 / bundles / junction） | 完成，备份 `.dsh/backups/scope-2026-11-19-02-16-43` |
-| profile 的 pnpm-lock 重新同步（scoped 1 处，旧名 0 处） | 完成 |
-| 本地提交 + tag `v1.0.0` | 完成（`9d082e7`） |
-| `git push --follow-tags` | **阻塞**：github.com:443 连不上（4 次尝试，21s 超时） |
-| GitHub Release | 待推送后执行 |
-| `npm publish` | 待 npm 登录（本机 `npm whoami` 无输出） |
+| 改名 + profile 迁移（deps / bundles / junction）+ lock 重同步 | 完成 |
+| 本地 tag v1.0.0 + 远端 tag + Release | 完成 |
+| 页面三 tab + 深浅色 + en/zh | 完成 |
+| Agent 工具 plugin_pack | 完成 |
+| 6 条兼容规则 / 原子安装 / 回滚 / 降级保护 / pnpm 落锁 | 完成 |
+| npm publish | **待登录**：`npm login` 后 `npm publish --access public` |
+| dshmarket 上架 / 市场元数据 | 未做 |
 
-## 网络恢复后一条命令
+## 网络与沙箱注意
 
-```bash
-bash tools/release.sh     # push → gh release create → npm publish（未登录会跳过）
-```
+- git/gh 必须 `</dev/null` + `GH_PROMPT_DISABLED=1`，否则静默挂在 stdin
+- github.com:443 偶发连不上，重试即可
 
-## 环境注意
+## 备份
 
-沙箱里跑 git/gh **必须** `</dev/null` + `GH_PROMPT_DISABLED=1`，否则会静默等在 stdin 上。
+- profile 迁移前：`.dsh/backups/scope-2026-11-19-02-16-43/`
+- 每次安装：`.dsh/backups/<时间戳>/`（可用 `dsh-pack restore` 回滚）
