@@ -1,6 +1,9 @@
 {
-  "name": "dsh-plugin-pack",
-  "version": "0.1.0",
+  "name": "@879745uhjun/dsh-plugin-pack",
+  "version": "1.0.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Bundle a set of DSH plugins, their configs and version locks into one portable .dshpack, then install it on another machine.",
   "type": "module",
   "main": "index.js",
