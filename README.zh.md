@@ -26,3 +26,11 @@ node bin/dsh-pack.mjs install out/dsh-toolkit-1.0.0.dshpack --yes    # 真正写
 - 追加 `cordis.patch.yml` 的 `- id:` 条目
 - 安装前备份到 `.dsh/backups/<时间戳>`，失败自动回滚
 - **降级保护**：包里的版本比本机旧时标为「降级」，默认不写入，除非显式选「覆盖」
+
+## 从 GitHub 安装
+
+```sh
+dsh plugin --profile desktop add github:879745uhjun/dsh-plugin-pack
+```
+
+装好后刷新 Web 页面。

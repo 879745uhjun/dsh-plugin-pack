@@ -72,3 +72,11 @@ node bin/dsh-pack.mjs restore latest --pnpm "D:/Tools/Deepseek DSH/resources/run
 
 align 默认只报告（当前 tag vs 最新 tag）；--upgrade 才会 git checkout <tag>，
 遇到未提交改动会拒绝（dirty work tree），不会 reset 任何东西。
+
+## Install from GitHub
+
+```sh
+dsh plugin --profile desktop add github:879745uhjun/dsh-plugin-pack
+```
+
+Reload the Web UI page after installing.
